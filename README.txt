@@ -1,90 +1,74 @@
 = Intro =
 
-Zerovisor is a process supervision tool and framework written in
-Python and built on top of 0mq and gevent.
+Zerovisor is a distributed process supervision tool written in Python
+and built on top of 0mq and gevent.
 
 Zerovisor differs from other process managers in that it is
-distributed.  A zerovisor runs on one or more machines and supervises
-locally running processes.  The cluster of zerovisors can
-intercommunicate and treat the entire "farm" of processes as if
-running on one big machine.
+distributed.  A zerovisor process runs on one or more machines and
+"watches" other locally or remotely running processes.  The cluster of
+zerovisors can inter-communicate and treat the entire "farm" of
+processes as if running on one big machine.  Whether interacting with
+the entire cluster or just one zerovisor, the command line tools
+behave the same.
+
+Another big difference with other supervision frameworks is that there
+is no "configuration file".  Based on the philosophies of 0mq, there
+is no centralized point of control or configuration.  Zerovisor is a
+collection of command-line tools that let you interconnect processes
+and zerovisors by having them rendezvous at different local and remote
+communication "endpoints".  All configuration options are arguments to
+the zerovisor commands.
 
 Regardless if whether a process is running locally to a zerovisor or
-on some other machine, a consistent interface is used to manage all
-processes.
+on some other machine, a consistent set of command-line tools is used
+to manage all processes across many machines.  There is no zerovisor
+"shell".  Your OS shell is the zerovisor shell!
 
-Zerovisor consists mainly of two kinds of components, zerovisors and
-processes.
+= Getting started =
 
-= Zerovisor =
+Here are some examples:
 
-A Zerovisor can run the following commands either locally or remote:
+Typically when using zerovisor the first task will be to create a
+zerovisor process.
 
-  - Spawn or kill a process or group
+  $ zerovisor
 
-  - Tail out/err logs for a process or group
+This command runs a local zerovisor process and connects it to the
+default endpoint 'ipc://zerovisor.sock' which creates a domain socket
+of that name in the local directory where zerovisor was run.
 
-  - Attach to a running process or group (redirect IO to local console)
+Now a zerovisor process is running waiting for processes to monitor to
+be started.  For example, consider the standard unix program 'echo':
 
-= Usage =
+  $ echo bob is your uncle
+  bob is your uncle
+  $
 
-The zerovisor can be run with either one off commands via the command
-line or an interactive shell.
+The echo process started, echoed its arguments to its standard output,
+and then exited.  This process can be watched starting it instead with
+the 'zvwatch' command:
 
-When zerovisor is started with the -i option, it launches an
-interactive shell.
+  $ zvwatch echo bob is your uncle
+  $
 
-= Commands = 
+Here the 'zvwatch' program is running the same 'echo' program, but
+notice that no output was echoed.  This is because by default zvwatch
+redirects all standard input and outputs to the zerovisor.  The
+process started, ran, sent output, and exited, and all that
+information was sent to the zerovisor, instead of to the console.
+This can be seen by tailing the zerovisor log:
 
-Commands have a common format:
+  $ tail zerovisor.log
 
-  command [spec] [args]
+There are 3 processes at work here: the 'zerovisor' process runs
+continuously and collects data from watchers.  The 'zvwatch' process
+spawns child processes and watches them for activity, sending events
+and I/O data to the zerovisor, and finally there is the watched
+process, blissfully doing its thing completely unaware of the
+intervention of zwatch and zerovisor.
 
-The first part is the command to be run, the 'spec' is a formatted
-string specifying the target or targets of the command, args is an
-optional sequence of arguments the command may require.
-
-= Spec =
-
-A spec is:
-
-  [zerovisors/]pattern
-
-If the 'zerovisors' is ommited, it defaults to '*/' which is all
-zerovisors.  Otherwise it is one (or more separated by commas)
-zerovisor peers.
-
-Pattern is either a number (ore more separated by commads) specifying
-a PID, or a string, specifying a process name regex to match.
-
-Some examples:
-
- '*/apache' or just 'apache' will specify all apache processes.
-
- 'server1,server2/apache' is all apache processes on server1 and server2.
- 
-= spawn =
-
-'spawn' starts a new process or processes defined by spec and passes
-the new processes the optional args.  The args are parsed with shlex
-before being opened with subprocess.Popen.  From that point forward
-the processes are monitored by the process' local zerovisor.
-
-= kill =
-
-Send a signal (default: TERM) the processed defined by the spec, kill
-takes one optional arg specifying the signal number or name to send to
-the process.
-
-= tail =
-
-Tail the output, error, or both of a process or group.
-
-= attach =
-
-Attach to a process, redirecting the current terminal to the
-stdin/stdout/stderr of the processes in the spec.  Multiple outputs
-are interleaved, inputs are broadcast to all processes in the spec.
-
-Attach mode is canceled with C-c.  Currelt you cannot send C-c to a
-running process.
+The way zvwatch and zerovisor interact with each other by default is
+over the zeromq endpoint 'ipc://zerovisor.sock'.  On unix this creates
+a local unix domin socket file.  All zerovisor tools however take the
+'-e' or '--endpoint' arguments to send the endpoint where the
+zerovisor and the vzwatch will rendezvous.

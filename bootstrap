@@ -1,0 +1,1 @@
+ ~/python27/bin/virtualenv . --system-site-packages --distribute
