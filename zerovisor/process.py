@@ -68,6 +68,8 @@ class Watcher(object):
             print identity
 
     def start(self):
+        # start the process and the green threads the handle 
+        # the various i/o and signal transits
         self._start_subproc()
 
         self._send('start', self.process.pid)
@@ -81,22 +83,30 @@ class Watcher(object):
 
         self.poller.join() # wait here for the process to die
 
-        self.terminate()
+        self.terminate() # the process died or something, finish the
+                         # job
 
     def terminate(self):
+        # terminate the process, clean up the blood and guts
         self._flush()
+
+        # rough here sketch sucks
         while self.wait_to_die and self.process.poll() is None:
             self.process.terminate()
             self.wait_to_die -= 1
             gevent.sleep(1)
 
+        # knife the baby
         if self.process.poll() is None:
             self.process.kill()
 
+        # who knows what the right order of killing, flushing and joining is?
         self.stdiner.kill(block=False)
         self._flush()
         gevent.joinall([self.stdouter, self.stderrer])
         self.process.wait()
+
+        # return wit hte same code as the child
         rc = self.process.returncode
         if rc < 0:
             self._send('signal', rc) # killed by signal

@@ -5,19 +5,11 @@ and built on top of 0mq and gevent.
 
 Zerovisor differs from other process managers in that it is
 distributed.  A zerovisor process runs on one or more machines and
-"watches" other locally or remotely running processes.  The cluster of
-zerovisors can inter-communicate and treat the entire "farm" of
-processes as if running on one big machine.  Whether interacting with
-the entire cluster or just one zerovisor, the command line tools
-behave the same.
+"watches" other locally or remotely running processes.
 
 Another big difference with other supervision frameworks is that there
 is no "configuration file".  Based on the philosophies of 0mq, there
-is no centralized point of control or configuration.  Zerovisor is a
-collection of command-line tools that let you interconnect processes
-and zerovisors by having them rendezvous at different local and remote
-communication "endpoints".  All configuration options are arguments to
-the zerovisor commands.
+is no centralized point of control or configuration.
 
 Regardless if whether a process is running locally to a zerovisor or
 on some other machine, a consistent set of command-line tools is used
@@ -67,6 +59,13 @@ process was not only returned to the shell, but also sent to the
 zerovisor, as can be seen by tailing the logs:
 
     $ tail zerovisor.log
+    ['\x00k\x8bEg', 'start', 12998L]
+    ['\x00k\x8bEg', 'out', 'bob is your uncle\n']
+    ['\x00k\x8bEg', 'return', 0L]
+
+The watcher process contacted the zerovisor, told it the child was
+starting (and the pid), repeated the output of the program, then
+indicated the process returned with code '0'.
 
 There are 3 processes at work here: the 'zerovisor' process runs
 continuously and collects data from watchers.  The 'zvwatch' process
