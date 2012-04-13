@@ -1,55 +1,68 @@
-import os
+from collections import defaultdict
 
 import gevent
+
 from gevent_zeromq import zmq
 from tnetstring import loads
 
 
-class Zerovisor(gevent.Greenlet):
+class Zerovisor(object):
 
-    def __init__(self, endpoint):
-        gevent.Greenlet.__init__(self)
+    def __init__(self, endpoint, controlpoint):
         self.endpoint = endpoint
+        self.controlpoint = controlpoint
 
-    def _run(self, *args):
-        self.processes = {}
+        self.processes = defaultdict(dict)
         self.context = zmq.Context()
         self.router = self.context.socket(zmq.ROUTER)   
         self.router.bind(self.endpoint)
 
+        self.control = self.context.socket(zmq.REP)
+        self.control.bind(self.controlpoint)
+
+    def start(self):
+        router = gevent.spawn(self._read_router)
+        controler = gevent.spawn(self._read_control)
+        controler.join() # wait here for the controller to exit
+        router.kill(block=False)
+
+    def _read_control(self):
+        while True:
+            gevent.sleep(1)
+
+    def _read_router(self):
         while True:
             sender, cmd, data = self.router.recv_multipart()
             print([sender, cmd, loads(data)])
 
 
-if __name__ == '__main__':
+def zerovise(endpoint, controlpoint):
+    z = Zerovisor(endpoint, controlpoint)
+    gevent.spawn(z.start).join()
+
+
+def main():
     from optparse import OptionParser
-    from ConfigParser import ConfigParser
 
     parser = OptionParser()
-    parser.add_option('-e', '--endpoint', dest='endpoint', default='ipc://var/zerovisor.sock',
-                      help='Specify zerovisor endpoint')
+    parser.add_option('-e', '--endpoint', dest='endpoint', default='ipc://zerovisor.sock',
+                      help='Specify zerovisor endpoint.')
 
-    parser.add_option('-c', '--config', dest='config', default='zerovisor.conf',
-                      help='Specify config file', metavar='FILE')
+    parser.add_option('-c', '--controlpoint', dest='controlpoint', default='ipc://control.sock',
+                      help='Specify zerovisor control endpoint.')
 
-    parser.add_option('-s', '--shell', action='store_true', dest='shell',
-                      help='Launch interactive zerovisor shell')
+    parser.add_option('-l', '--logfile', dest='logfile', default='zerovisor.log',
+                      help='Specify the log file.')
 
-    parser.add_option('-d', '--daemon', action='store_true', dest='shell',
-                      help='Run zerovisor in the background.')
+    parser.add_option('-p', '--pidfile', dest='pidfile', default='zerovisor.pid',
+                      help='Specify the pid file.')
+
+    parser.add_option('-n', '--nodetach', action='store_false', dest='detach', default=True,
+                      help='Do not detach.')
 
     (options, args) = parser.parse_args()
-
-    import pdb; pdb.set_trace()
-    configuration = ConfigParser()
-    configuration.read([options.config,
-                        'etc/zerovisor.conf',
-                        os.path.expanduser('~/.zerovisor/conf'), 
-                        '/etc/zerovisor.conf'])
-
-    w = Zerovisor(options.endpoint)
-    w.start()
-    w.join()
+    zerovise(options.endpoint, options.controlpoint)
 
 
+if __name__ == '__main__':
+        main()

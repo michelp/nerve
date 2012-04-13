@@ -1,4 +1,4 @@
 from .zerovisor import Zerovisor
-from .process import Process
+from .process import Watcher
 
-__all__ = ['Zerovisor', 'Process']
+__all__ = ['Zerovisor', 'Watcher']
