@@ -102,46 +102,54 @@ class Popen(object):
 
         self.poller = gevent.spawn(self._poll_process)
 
-        self.poller.join() # wait here for the process to die
+        # wait here for the process to die
+        self.poller.join()
 
+        # if poll returns, then the process is dead, cleanup.
         self.terminate()
 
     def terminate(self):
-        # terminate the process, clean up the blood and guts
+        # terminate the possibly dead process, clean up the blood and
+        # guts
         self._flush()
+        # rough here sketch sucks.  If the proc hasn't died,
+        # try to TERM it, then KILL it
 
-        # rough here sketch sucks
+        # stab it repeatedly
         while self.wait_to_die and self.process.poll() is None:
             self.process.terminate()
             self.wait_to_die -= 1
             gevent.sleep(1)
 
-        # knife the baby
+        # shoot it in the head
         if self.process.poll() is None:
             self.process.kill()
 
-        # who knows what the right order of killing, flushing and joining is?
+        # who knows what the right order of killing, flushing and
+        # joining is?  This seems to work
         self.stdiner.kill(block=False)
         self._flush()
         gevent.joinall([self.stdouter, self.stderrer])
+
+        # Finally, wait for the process to be dead.  It should be!
         self.process.wait()
 
-        # return wit hte same code as the child
+        # before we go, send off the autopsy report
         rc = self.process.returncode
         if rc < 0:
             self._send('signal', rc) # killed by signal
         else:
             self._send('return',  rc) # returned code
 
+        # cleanup zeromq stuff
         self.io.close()
         self.context.term()
         return rc
 
     def _start_subproc(self):
-        # launch subprocess, with in/out/err as pipes
         self.process = proc = subprocess.Popen(self.args, **self.kwargs)
 
-        # set all pipes to be non-blocking
+        # set all subprocess pipes to be non-blocking
         fcntl.fcntl(proc.stdin, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stdout, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stderr, fcntl.F_SETFL, os.O_NONBLOCK)
@@ -150,11 +158,15 @@ class Popen(object):
         self.process.stdout.flush()
         self.process.stderr.flush()
 
+    # send/recv helpers
+
     def _send(self, op, data=None):
         self.io.send_multipart(['', op, dumps(data)])
 
     def _recv(self):
         return self.io.recv_multipart()
+
+    # non-blocking helpers for read/write
 
     def _read(self, handle):
         socket.wait_read(handle.fileno())
@@ -163,6 +175,8 @@ class Popen(object):
     def _write(self, handle, data):
         socket.wait_write(handle.fileno())
         return handle.write(data)
+
+    # workers below
 
     def _write_stdin(self):
         while True:
