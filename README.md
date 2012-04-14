@@ -24,7 +24,7 @@ Zerovisor can be installed from pypi using either easy_install or pip:
     
 This will download and install the lastest version of zerovisor into
 your environment.  This will install the programs 'zerovisord' and
-'zvwatch':
+'zvopen':
 
 ## Getting started
 
@@ -48,9 +48,9 @@ be started.  For example, consider the standard unix program 'echo':
 
 The echo process started, echoed its arguments to its standard output,
 and then exited.  This process can be watched starting it instead with
-the 'zvwatch' command:
+the 'zvopen' command:
 
-    $ zvwatch echo bob is your uncle
+    $ zvopen echo bob is your uncle
     bob is your uncle
     $
 
@@ -68,13 +68,13 @@ starting (and the pid), repeated the output of the program, then
 indicated the process returned with code '0'.
 
 There are 3 processes at work here: the 'zerovisor' process runs
-continuously and collects data from watchers.  The 'zvwatch' process
+continuously and collects data from watchers.  The 'zvopen' process
 spawns child processes and watches them for activity, sending events
 and I/O data to the zerovisor, and finally there is the watched
 process, blissfully doing its thing completely unaware of the
-intervention of zvwatch and zerovisor.
+intervention of zvopen and zerovisor.
 
-The way zvwatch and zerovisor interact with each other by default is
+The way zvopen and zerovisor interact with each other by default is
 over the zeromq endpoint 'ipc://zerovisor.sock'.  On unix this creates
 a local unix domin socket file.  All zerovisor tools however take the
 '-e' or '--endpoint' arguments to send the endpoint where the
@@ -86,9 +86,9 @@ allows zerovisor connections over the network:
     $ zerovisord --endpoint tcp://*:44444
     
 Now the zerovisor daemon is listening on the localhost port 44444.  A
-zvwatch can be launched wit the same argument:
+zvopen can be launched wit the same argument:
 
-    $ zvwatch --endpoint tcp://localhost:44444 echo bob is your uncle
+    $ zvopen --endpoint tcp://localhost:44444 echo bob is your uncle
     
 Tail the zerovisor.log file and you will see that the same information
 as before is reported to the zerovisor, but this time, over a network
@@ -114,6 +114,17 @@ turn, control many processes.
 
 # Watching zerovisors with zerovisors
 
-'zvwatch' can be used to watch zerovisor, in turn reporting to a
+'zvopen' can be used to watch zerovisor, in turn reporting to a
 "meta" zerovisor.  Typically one master zerovisor will watch a ring of
 zerovisors, which in turn watch a cluster of processes.
+
+# Using zerovisor.zvopen.Popen
+
+The 'zvopen' program is a wrapper around a class that mimics the
+operation of the 'subprocess.Popen' class.  This means that in most
+cases, with minimal constructor changes, the 'zerovisor.zvopen.Popen'
+class can be substituted into an existing program that uses
+'subprocess.Popen' to provide process supervision to child processes
+started from Python code.
+
+Note that the zerovisor Popen is not a perfect clone of Popen.

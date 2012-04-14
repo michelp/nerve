@@ -22,7 +22,7 @@ setup(name='zerovisor',
         """,
       entry_points={'console_scripts': """
         zerovisord = zerovisor.zerovisord:main
-        zvwatch = zerovisor.zvwatch:main
+        zvopen = zerovisor.zvopen:main
         zvctl = zerovisor.zvctl:main
       """},
       keywords="process supervision zeromq 0mq pyzmq gevent distributed",
