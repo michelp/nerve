@@ -92,8 +92,8 @@ class Popen(object):
             self.io.setsockopt(zmq.IDENTITY, zv_identity)
 
     def start(self):
-        # start the process and the green threads the handle
-        # the various i/o and signal transits
+        # start the process and then the green threads the handle the
+        # various i/o and signal transits
         self._start_subproc()
 
         self._send('start', self.process.pid)
@@ -241,11 +241,11 @@ def main():
     parser = OptionParser()
     parser.disable_interspersed_args()
 
-    parser.add_option('-n', '--endpoint',
+    parser.add_option('-e', '--endpoint',
                       dest='endpoint', default='ipc://zerovisor.sock',
                       help='Specify zerovisor endpoint.')
 
-    parser.add_option('-d', '--identity',
+    parser.add_option('-i', '--identity',
                       dest='identity', default=None,
                       help='Specify our identity to the zerovisor.')
 
