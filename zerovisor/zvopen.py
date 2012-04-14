@@ -42,7 +42,9 @@ class Popen(object):
                  zv_restart_retries=3,
                  zv_poll_interval=.1,
                  zv_ping_interval=1,
-                 zv_wait_to_die=3):
+                 zv_wait_to_die=3,
+                 zv_linger=0,
+                 ):
         """
         Spawn a subprocess.Popen with 'args', watch the process.  See
         'zvopen --help' for description of options.
@@ -85,6 +87,7 @@ class Popen(object):
         # create a connection to the zerovisor router
         self.io = self.context.socket(zmq.DEALER)
         self.io.connect(self.endpoint)
+        self.io.setsockopt(zmq.LINGER, zv_linger)
         if zv_identity is not None:
             self.io.setsockopt(zmq.IDENTITY, zv_identity)
 
@@ -278,6 +281,10 @@ def main():
                       type="int", dest='wait_to_die', default=3,
                       help='Seconds to wait after sending TERM to send KILL.')
 
+    parser.add_option('-g', '--linger',
+                      type="int", dest='linger', default=0,
+                      help='Seconds to wait at exit for outbound messages to send.')
+
     (options, args) = parser.parse_args()
 
     p = Popen(args,
@@ -294,6 +301,7 @@ def main():
               zv_ping_interval=options.ping_interval,
               zv_poll_interval=options.poll_interval,
               zv_wait_to_die=options.wait_to_die,
+              zv_linger=options.linger,
               )
 
     g = gevent.spawn(p.start)
