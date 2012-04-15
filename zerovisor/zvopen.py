@@ -86,10 +86,14 @@ class Popen(object):
 
         # create a connection to the zerovisor router
         self.io = self.context.socket(zmq.DEALER)
-        self.io.connect(self.endpoint)
-        self.io.setsockopt(zmq.LINGER, zv_linger)
         if zv_identity is not None:
             self.io.setsockopt(zmq.IDENTITY, zv_identity)
+
+        self.io.connect(self.endpoint)
+        self.io.setsockopt(zmq.LINGER, zv_linger)
+
+    def __getattr__(self, name):
+        return getattr(self.process, name)
 
     def start(self):
         # start the process and then the green threads the handle the
@@ -98,17 +102,17 @@ class Popen(object):
 
         self._send('start', self.process.pid)
 
+        # spawn workers
         self.stdiner = gevent.spawn(self._write_stdin)
         self.stdouter = gevent.spawn(self._read_stdout)
         self.stderrer = gevent.spawn(self._read_stderr)
         self.pinger = gevent.spawn(self._pinger)
-
         self.poller = gevent.spawn(self._poll_process)
 
-        # wait here for the process to die
+        # wait here for the process to die naturally
         self.poller.join()
 
-        # if poll returns, then the process is dead, cleanup.
+        # if poll returns, then the process is likely dead, cleanup.
         self.terminate()
 
     def terminate(self):
@@ -118,7 +122,7 @@ class Popen(object):
         # rough here sketch sucks.  If the proc hasn't died,
         # try to TERM it, then KILL it
 
-        # stab it repeatedly
+        # stab it repeatedly, improve the logic here
         while self.wait_to_die and self.process.poll() is None:
             self.process.terminate()
             self.wait_to_die -= 1

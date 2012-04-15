@@ -121,10 +121,6 @@ zerovisors, which in turn watch a cluster of processes.
 # Using zerovisor.zvopen.Popen
 
 The 'zvopen' program is a wrapper around a class that mimics the
-operation of the 'subprocess.Popen' class.  This means that in most
-cases, with minimal constructor changes, the 'zerovisor.zvopen.Popen'
-class can be substituted into an existing program that uses
-'subprocess.Popen' to provide process supervision to child processes
-started from Python code.
+operation of the 'subprocess.Popen' class.
 
 Note that the zerovisor Popen is not a perfect clone of Popen.
