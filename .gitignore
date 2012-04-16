@@ -3,3 +3,5 @@ build
 include
 lib
 *.pyc
+*.egg-info*
+*~
