@@ -1,12 +1,9 @@
-import sys
-import daemon
-
 from collections import defaultdict
-
-import gevent
-
 from gevent_zeromq import zmq
 from tnetstring import loads
+import daemon
+import gevent
+import sys
 
 
 class Zerovisor(object):
