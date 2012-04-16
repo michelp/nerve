@@ -1,14 +1,12 @@
-import os
-import sys
-import subprocess
+from gevent import socket
+from tnetstring import dumps, loads
 import errno
 import fcntl
-
 import gevent
-from gevent import socket
-from gevent_zeromq import zmq
-
-from tnetstring import dumps, loads
+import os
+import subprocess
+import sys
+import zmq.green as zmq
 
 
 class Popen(object):

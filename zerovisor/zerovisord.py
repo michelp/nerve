@@ -1,9 +1,9 @@
+#import daemon
 from collections import defaultdict
-from gevent_zeromq import zmq
 from tnetstring import loads
-import daemon
 import gevent
 import sys
+import zmq.green as zmq
 
 
 class Zerovisor(object):
