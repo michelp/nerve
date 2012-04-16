@@ -35,15 +35,14 @@ class Zerovisor(object):
         while True:
             try:
                 sender, _, cmd, data = self.router.recv_multipart()
+                print '---'
             except ValueError:
                 continue
             self.logfile.write(str([sender, cmd, loads(data)])+'\n')
             self.logfile.flush()
 
-
-def zerovise(endpoint, controlpoint, logfile):
-    z = Zerovisor(endpoint, controlpoint, logfile)
-    gevent.spawn(z.start).join()
+    def run(self):
+        return gevent.spawn(self.start)
 
 
 def main():
@@ -76,7 +75,7 @@ def main():
         logfile = open(options.logfile, 'w+')
 
     try:
-        zerovise(options.endpoint, options.controlpoint, logfile)
+        Zerovisor(options.endpoint, options.controlpoint, logfile).start()
     except Exception:
         if options.debug:
             import pdb; pdb.pm()

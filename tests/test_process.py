@@ -1,14 +1,18 @@
-import multiprocessing
+from StringIO import StringIO
 import gevent
 import zerovisor
 
 
 def test_init():
     ep = 'ipc:///tmp/a'
-    z = zerovisor.Zerovisor(ep)
-    z.start()
-    p = zerovisor.Process(ep, ['echo', 'hi'])
-    p.start()
-    gevent.joinall([z, p])
-    
+    cp = 'ipc:///tmp/b'
+    lf = StringIO()
+    z = zerovisor.Zerovisor(ep, cp, lf)
+    p = zerovisor.Popen(['echo', 'hi'], zv_endpoint=ep, zv_identity='hibob')
+    zg = z.run()
+    gevent.joinall([gevent.spawn(p.start)])
+    gevent.sleep(0.2)
+    zg.kill()
+    print lf.getvalue()
+
     
