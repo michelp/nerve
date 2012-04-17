@@ -44,6 +44,10 @@ class Zerovisor(object):
     def _publish(self, proc, cmd, data):
         id_pubout = ' '.join([proc, cmd, data])
         self.pub.send(id_pubout)
+
+    def _log(self, sender, cmd, data):
+        self.logfile.write(str([sender, cmd, loads(data)])+'\n')
+        self.logfile.flush()
         
     def _read_router(self):
         while True:
@@ -52,8 +56,7 @@ class Zerovisor(object):
             except ValueError:
                 continue
             self._publish(sender, cmd, data)
-            self.logfile.write(str([sender, cmd, loads(data)])+'\n')
-            self.logfile.flush()
+            self._log(sender, cmd, data)
 
     def run(self):
         return gevent.spawn(self.start)

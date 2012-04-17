@@ -48,7 +48,6 @@ class TestSimpleSupervision(unittest.TestCase):
         """
         Sanity test: Proc runs and writes log
         """
-
         self.basic_supervision()
         assert self.lf.getvalue()
         sub = self.suball
