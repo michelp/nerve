@@ -42,10 +42,8 @@ class Zerovisor(object):
             gevent.sleep(1)
 
     def _publish(self, proc, cmd, data):
-        id_pubout = ' '.join([proc, cmd, proc, data])
+        id_pubout = ' '.join([proc, cmd, data])
         self.pub.send(id_pubout)
-        cmd_pubout = ' '.join([cmd, cmd, proc, data])
-        self.pub.send(cmd_pubout)
         
     def _read_router(self):
         while True:
@@ -53,7 +51,7 @@ class Zerovisor(object):
                 sender, _, cmd, data = self.router.recv_multipart()
             except ValueError:
                 continue
-
+            self._publish(sender, cmd, data)
             self.logfile.write(str([sender, cmd, loads(data)])+'\n')
             self.logfile.flush()
 
@@ -94,6 +92,7 @@ def subscriber(pub, channels=None, parse=parse_pubout, timeout=500):
 
         for chan in channels:
             sock.setsockopt(zmq.SUBSCRIBE, chan)
+            
         sock.connect(pub)
         poll.register(sock)
         yield None
