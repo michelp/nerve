@@ -1,4 +1,5 @@
-from .zerovisor import Zerovisor
-from .process import Watcher
+from .zerovisord import Zerovisor
+from .process import Popen
 
-__all__ = ['Zerovisor', 'Watcher']
+
+__all__ = ['Zerovisor', 'Popen']

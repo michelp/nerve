@@ -1,14 +1,12 @@
-import os
-import sys
-import subprocess
+from gevent import socket
+from tnetstring import dumps, loads
 import errno
 import fcntl
-
 import gevent
-from gevent import socket
-from gevent_zeromq import zmq
-
-from tnetstring import dumps, loads
+import os
+import subprocess
+import sys
+import zmq.green as zmq
 
 
 class Popen(object):
@@ -38,7 +36,7 @@ class Popen(object):
                  zv_recv_in=False,
                  zv_send_out=False,
                  zv_send_err=False,
-                 zv_send_all=False,
+                 zv_send_all=True,
                  zv_restart_retries=3,
                  zv_poll_interval=.1,
                  zv_ping_interval=1,
@@ -122,6 +120,9 @@ class Popen(object):
         # rough here sketch sucks.  If the proc hasn't died,
         # try to TERM it, then KILL it
 
+        # stop reporting yourself live
+        self.pinger.kill(block=False)
+
         # stab it repeatedly, improve the logic here
         while self.wait_to_die and self.process.poll() is None:
             self.process.terminate()
@@ -154,21 +155,26 @@ class Popen(object):
         return rc
 
     def _start_subproc(self):
+        """
+        Create subprocess.Popen object and set all file descriptors
+        not to block.
+        """
         self.process = proc = subprocess.Popen(self.args, **self.kwargs)
 
-        # set all subprocess pipes to be non-blocking
         fcntl.fcntl(proc.stdin, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stdout, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stderr, fcntl.F_SETFL, os.O_NONBLOCK)
 
     def _flush(self):
-        self.process.stdout.flush()
-        self.process.stderr.flush()
+        self.process.stdin.flush()
+        sys.stdout.flush()
+        sys.stderr.flush()
 
     # send/recv helpers
 
     def _send(self, op, data=None):
-        self.io.send_multipart(['', op, dumps(data)])
+        payload = ['', op, dumps(data)]
+        self.io.send_multipart(payload)
 
     def _recv(self):
         return self.io.recv_multipart()
@@ -234,7 +240,10 @@ class Popen(object):
             gevent.sleep(self.poll_interval)
 
     def _pinger(self):
-        while True:
+        """
+        While io connection to zerovisor is open, poll the process
+        """
+        while not self.io.closed:
             gevent.sleep(self.ping_interval)
             self._send('ping', self.process.poll())
 

@@ -16,7 +16,6 @@ setup(name='zerovisor',
       install_requires="""
         pyzmq
         gevent
-        gevent_zeromq
         tnetstring
         python-daemon
         """,

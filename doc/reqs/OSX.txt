@@ -1,0 +1,4 @@
+# deps for working on gevent head
+pyzmq-static
+cython 
+https://github.com/schmir/gevent/zipball/1.0b2
