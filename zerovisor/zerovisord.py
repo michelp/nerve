@@ -9,9 +9,9 @@ import zmq.green as zmq
 
 class Zerovisor(object):
 
-    def __init__(self, endpoint, controlpoint, pubout, logfile):
+    def __init__(self, endpoint, ctl_endpoint, pubout, logfile):
         self.endpoint = endpoint
-        self.controlpoint = controlpoint
+        self.ctl_endpoint = ctl_endpoint
         self.logfile = logfile
 
         self.processes = defaultdict(dict)
@@ -20,7 +20,7 @@ class Zerovisor(object):
         self.router.bind(self.endpoint)
 
         self.control = self.context.socket(zmq.REP)
-        self.control.bind(self.controlpoint)
+        self.control.bind(self.ctl_endpoint)
 
         self.pub = self.context.socket(zmq.PUB)
         self.pub.bind(pubout)
@@ -119,7 +119,7 @@ def main():
     parser.add_option('-o', '--pub-endpoint', dest='pub_endpoint', default='ipc://pub.sock',
                       help='Specify zerovisor pub endpoint.')
 
-    parser.add_option('-c', '--controlpoint', dest='controlpoint', default='ipc://control.sock',
+    parser.add_option('-c', '--ctl-endpoint', dest='ctl_endpoint', default='ipc://control.sock',
                       help='Specify zerovisor control endpoint.')
 
     parser.add_option('-l', '--logfile', dest='logfile', default='zerovisor.log',
@@ -142,12 +142,15 @@ def main():
         logfile = open(options.logfile, 'w+')
     
     try:
-        g = gevent.spawn(Zerovisor(options.endpoint, options.controlpoint, 
+        import pdb; pdb.set_trace()
+        g = gevent.spawn(Zerovisor(options.endpoint, options.ctl_endpoint, 
                                    options.pub_endpoint, logfile).start)
         g.join()
     except Exception:
         if options.debug:
             import pdb; pdb.pm()
+        else:
+            raise
 
 
 if __name__ == '__main__':

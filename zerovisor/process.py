@@ -42,7 +42,7 @@ class Popen(object):
                  zv_ping_interval=1,
                  zv_wait_to_die=3,
                  zv_linger=0,
-                 zv_use_ssh=None,
+                 zv_ssh_server=None,
                  ):
         """
         Spawn a subprocess.Popen with 'args', watch the process.  See
@@ -88,16 +88,15 @@ class Popen(object):
         if zv_identity is not None:
             self.io.setsockopt(zmq.IDENTITY, zv_identity)
 
-        if zv_use_ssh is not None:
+        if zv_ssh_server is not None:
             from zmq import ssh
-            self.tunnel = ssh.tunnel_connection(self.endpoint, zv_use_ssh)
+            import pdb; pdb.set_trace()
+            self.tunnel = ssh.tunnel_connection(self.io, self.endpoint, 
+                                                zv_ssh_server)
         else:
             self.io.connect(self.endpoint)
 
         self.io.setsockopt(zmq.LINGER, zv_linger)
-
-    def __getattr__(self, name):
-        return getattr(self.process, name)
 
     def start(self):
         # start the process and then the green threads the handle the
@@ -257,68 +256,119 @@ class Popen(object):
 def main():
     from optparse import OptionParser
 
+    configs = {}
+    config_file = None
+    try:
+        if '-c' in sys.argv:
+            config_file = sys.argv[sys.argv.index('-c') + 1]
+        elif '--config' in sys.argv:
+            config_file = sys.argv[sys.argv.index('--config') + 1]
+    except IndexError:
+        print 'Must provide a config file following -c or --config option.'
+        return
+
+    if config_file is not None:
+        import ConfigParser
+        cp = ConfigParser.ConfigParser()
+        cp.read(config_file)
+        for o in cp.options('zvopen'):
+            configs[o] = cp.get('zvopen', o)
+
     parser = OptionParser()
     parser.disable_interspersed_args()
 
     parser.add_option(
+        '-c', '--config', 
+        dest='config', default=False,
+        help='Specify config file.')
+
+    parser.add_option(
         '-e', '--endpoint',
-        dest='endpoint', default='ipc://zerovisor.sock',
+        dest='endpoint', 
+        default=configs.get('endpoint', 'ipc://zerovisor.sock'),
         help='Specify zerovisor endpoint.')
 
     parser.add_option(
         '-i', '--identity',
-        dest='identity', default=None,
+        dest='identity', 
+        default=configs.get('identity'),
         help='Specify our identity to the zerovisor.')
 
     parser.add_option(
         '-I', '--recv-in',
-        action='store_true', dest='recv_in', default=False,
+        action='store_true', 
+        dest='recv_in', 
+        default=configs.get('recv-in', False),
         help='Receive stdin from zerovisor.')
 
     parser.add_option(
         '-O', '--send-out',
-        action='store_true', dest='send_out', default=False,
+        action='store_true', 
+        dest='send_out', 
+        default=configs.get('send-out', False),
         help='Send stdout to zerovisor.')
 
     parser.add_option(
         '-E', '--send-err',
-        action='store_true', dest='send_err', default=False,
+        action='store_true', 
+        dest='send_err', 
+        default=configs.get('send-err', False),
         help='Send stderr to zerovisor.')
 
     parser.add_option(
         '-A', '--send-all',
-        action='store_true', dest='send_all', default=False,
+        action='store_true', 
+        dest='send_all', 
+        default=configs.get('send-all', False),
         help='Like -IAE, receive stdin and send both stdout and stderr.')
 
     parser.add_option(
         '-s', '--restart-retries',
-        type="int", dest='restart_retries', default=3,
+        type="int", 
+        dest='restart_retries', 
+        default=int(configs.get('restart-retries', 3)),
         help='How many retries to allow before permanent failure.')
 
     parser.add_option(
         '-p', '--ping-interval',
-        type="float", dest='ping_interval', default=3.0,
+        type="float", 
+        dest='ping_interval', 
+        default=float(configs.get('ping-interval', 3.0)),
         help='Seconds between heartbeats to zerovisor.')
 
     parser.add_option(
         '-l', '--poll-interval',
-        type="float", dest='poll_interval', default=.1,
+        type="float", 
+        dest='poll_interval', 
+        default=float(configs.get('poll-interval', .1)),
         help='Seconds between checking subprocess health.')
 
     parser.add_option(
         '-w', '--wait-to-die',
-        type="int", dest='wait_to_die', default=3,
+        type="int", 
+        dest='wait_to_die', 
+        default=int(configs.get('wait-to-die', 3)),
         help='Seconds to wait after sending TERM to send KILL.')
 
     parser.add_option(
         '-g', '--linger',
-        type="int", dest='linger', default=0,
+        type="int", 
+        dest='linger', 
+        default=int(configs.get('linger', 1)),
         help='Seconds to wait at exit for outbound messages to send.')
 
     parser.add_option(
-        '-S', '--use-ssh',
-        dest='use_ssh', default=None,
-        help='Use ssh tunnel to argument to connect to zerovisor endpoint.')
+        '-S', '--ssh-server',
+        dest='ssh_server', 
+        default=configs.get('ssh-server'),
+        help='Use ssh tunnel to server to connect to zerovisor endpoint.')
+
+    parser.add_option(
+        '-d', '--debug', 
+        action='store_true', 
+        dest='debug', 
+        default=configs.get('debug'),
+        help='Debug on unhandled error.')
 
     (options, args) = parser.parse_args()
 
@@ -337,7 +387,7 @@ def main():
               zv_poll_interval=options.poll_interval,
               zv_wait_to_die=options.wait_to_die,
               zv_linger=options.linger,
-              zv_use_ssh=options.use_ssh,
+              zv_ssh_server=options.ssh_server,
               )
 
     g = gevent.spawn(p.start)
