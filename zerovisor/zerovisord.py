@@ -1,5 +1,6 @@
-#import daemon
 from collections import defaultdict
+from contextlib import closing
+from functools import wraps
 from tnetstring import loads
 import gevent
 import sys
@@ -8,7 +9,7 @@ import zmq.green as zmq
 
 class Zerovisor(object):
 
-    def __init__(self, endpoint, controlpoint, logfile):
+    def __init__(self, endpoint, controlpoint, pubout, logfile):
         self.endpoint = endpoint
         self.controlpoint = controlpoint
         self.logfile = logfile
@@ -21,28 +22,92 @@ class Zerovisor(object):
         self.control = self.context.socket(zmq.REP)
         self.control.bind(self.controlpoint)
 
+        self.pub = self.context.socket(zmq.PUB)
+        self.pub.bind(pubout)
+
+    def terminate(self):
+        for sock in self.router, self.control, self.pub:
+            sock.close()
+        self.controller.kill(block=False)
+        self.context.term()
+
     def start(self):
         router = gevent.spawn(self._read_router)
-        controler = gevent.spawn(self._read_control)
-        controler.join() # wait here for the controller to exit
+        self.controller = gevent.spawn(self._read_control)
+        self.controller.join() # wait here for the controller to exit
         router.kill(block=False)
 
     def _read_control(self):
         while True:
             gevent.sleep(1)
 
+    def _publish(self, proc, cmd, data):
+        id_pubout = ' '.join([proc, cmd, proc, data])
+        self.pub.send(id_pubout)
+        cmd_pubout = ' '.join([cmd, cmd, proc, data])
+        self.pub.send(cmd_pubout)
+        
     def _read_router(self):
         while True:
             try:
                 sender, _, cmd, data = self.router.recv_multipart()
-                print '---'
             except ValueError:
                 continue
+
             self.logfile.write(str([sender, cmd, loads(data)])+'\n')
             self.logfile.flush()
 
     def run(self):
         return gevent.spawn(self.start)
+    
+
+
+def coro(func):
+    @wraps(func)
+    def start(*args,**kwargs):
+        cr = func(*args,**kwargs)
+        next(cr)
+        return cr
+    return start
+
+
+def parse_pubout(msg):
+    proc, cmd, data = msg.split(' ', 2)
+    return proc, cmd, loads(data)
+
+
+@coro
+def subscriber(pub, channels=None, parse=parse_pubout, timeout=500):
+    """
+    A generator for receiving messages from a publishing endpoint.
+    
+    Not really a coroutine, but it's more convenient to setup the socket
+    before it will receiver messages.  The first yield creates state and
+    returns `None`, the rest return msgs.
+    """
+    ctx = zmq.Context()
+    sock = ctx.socket(zmq.SUB)
+    poll = zmq.Poller()
+    with closing(sock):
+        if channels is None:
+            channels = ['']
+
+        for chan in channels:
+            sock.setsockopt(zmq.SUBSCRIBE, chan)
+        sock.connect(pub)
+        poll.register(sock)
+        yield None
+        try:
+            while True:
+                polled_socks = dict(poll.poll(timeout))
+                if polled_socks.get(sock) == zmq.POLLIN:
+                    msg = sock.recv()
+                    yield parse(msg)
+                gevent.sleep(0.1)
+        finally:
+            poll.unregister(sock)
+
+            
 
 
 def main():

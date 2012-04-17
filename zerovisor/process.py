@@ -169,18 +169,11 @@ class Popen(object):
         self.process.stdin.flush()
         sys.stdout.flush()
         sys.stderr.flush()
-        # rb handles don't flush
-        ## try:
-        ##     self.process.stdout.flush()
-        ##     self.process.stderr.flush()
-        ## except IOError:
-        ##     import pdb;pdb.set_trace()
 
     # send/recv helpers
 
     def _send(self, op, data=None):
         payload = ['', op, dumps(data)]
-        print payload
         self.io.send_multipart(payload)
 
     def _recv(self):
