@@ -116,6 +116,9 @@ def main():
     parser.add_option('-e', '--endpoint', dest='endpoint', default='ipc://zerovisor.sock',
                       help='Specify zerovisor endpoint.')
 
+    parser.add_option('-o', '--pub-endpoint', dest='pub_endpoint', default='ipc://pub.sock',
+                      help='Specify zerovisor pub endpoint.')
+
     parser.add_option('-c', '--controlpoint', dest='controlpoint', default='ipc://control.sock',
                       help='Specify zerovisor control endpoint.')
 
@@ -137,9 +140,11 @@ def main():
 
     if options.logfile != '-':
         logfile = open(options.logfile, 'w+')
-
+    
     try:
-        Zerovisor(options.endpoint, options.controlpoint, logfile).start()
+        g = gevent.spawn(Zerovisor(options.endpoint, options.controlpoint, 
+                                   options.pub_endpoint, logfile).start)
+        g.join()
     except Exception:
         if options.debug:
             import pdb; pdb.pm()
