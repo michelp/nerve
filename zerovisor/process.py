@@ -10,8 +10,6 @@ import sys
 import zmq.green as zmq
 
 
-
-
 class Popen(object):
     """
     Spawn and watch a subprocess and send interesting events to the
@@ -89,7 +87,6 @@ class Popen(object):
         self.autorestart = zv_autorestart
         self.startsecs = zv_startsecs
         self.exitcodes = set(zv_exitcodes)
-        self.state = state.STOPPED
 
         self.ping_interval = zv_ping_interval
         self.poll_interval = zv_poll_interval
