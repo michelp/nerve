@@ -1,3 +1,4 @@
+from . import utils
 from collections import defaultdict
 from contextlib import closing
 from functools import wraps
@@ -60,7 +61,40 @@ class Zerovisor(object):
 
     def run(self):
         return gevent.spawn(self.start)
-    
+
+    @staticmethod
+    def script_args(parser):
+        parser.add_argument('-e', '--endpoint', default='ipc://zerovisor.sock',
+                            help='Specify zerovisor endpoint.')
+
+        parser.add_argument('-c', '--controlpoint', default='ipc://control.sock',
+                            help='Specify zerovisor control endpoint.')
+
+        parser.add_argument('-l', '--logfile', default='zerovisor.log',
+                            help='Specify the log file.')
+
+        parser.add_argument('-p', '--pidfile', dest='pidfile', default='zerovisor.pid',
+                            help='Specify the pid file.')
+
+        parser.add_argument('-n', '--nodetach', action='store_false', dest='detach', default=True,
+                            help='Do not detach.')
+
+        parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=False,
+                            help='Debug on unhandled error.')
+        return parser
+
+    @classmethod
+    def script(cls, args):
+        logfile = sys.stdout
+
+        if args.logfile != '-':
+            logfile = open(args.logfile, 'w+')
+
+        try:
+            Zerovisor(args.endpoint, args.controlpoint, logfile).start()
+        except Exception:
+            if args.debug:
+                import pdb; pdb.pm()
 
 
 def coro(func):
@@ -109,43 +143,10 @@ def subscriber(pub, channels=None, parse=parse_pubout, timeout=500):
         finally:
             poll.unregister(sock)
 
-            
+
+main = utils.class_to_script(Zerovisor)
 
 
-def main():
-    from optparse import OptionParser
-
-    parser = OptionParser()
-    parser.add_option('-e', '--endpoint', dest='endpoint', default='ipc://zerovisor.sock',
-                      help='Specify zerovisor endpoint.')
-
-    parser.add_option('-c', '--controlpoint', dest='controlpoint', default='ipc://control.sock',
-                      help='Specify zerovisor control endpoint.')
-
-    parser.add_option('-l', '--logfile', dest='logfile', default='zerovisor.log',
-                      help='Specify the log file.')
-
-    parser.add_option('-p', '--pidfile', dest='pidfile', default='zerovisor.pid',
-                      help='Specify the pid file.')
-
-    parser.add_option('-n', '--nodetach', action='store_false', dest='detach', default=True,
-                      help='Do not detach.')
-
-    parser.add_option('-d', '--debug', action='store_true', dest='debug', default=False,
-                      help='Debug on unhandled error.')
-
-    (options, args) = parser.parse_args()
-
-    logfile = sys.stdout
-
-    if options.logfile != '-':
-        logfile = open(options.logfile, 'w+')
-
-    try:
-        Zerovisor(options.endpoint, options.controlpoint, logfile).start()
-    except Exception:
-        if options.debug:
-            import pdb; pdb.pm()
 
 
 if __name__ == '__main__':

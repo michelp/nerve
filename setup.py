@@ -18,11 +18,13 @@ setup(name='zerovisor',
         gevent
         tnetstring
         python-daemon
+        path.py
         """,
       entry_points={'console_scripts': """
         zerovisord = zerovisor.zerovisord:main
-        zvopen = zerovisor.zvopen:main
+        zvopen = zerovisor.process:main
         zvctl = zerovisor.zvctl:main
+        zvr = zerovisor.script:main
       """},
       keywords="process supervision zeromq 0mq pyzmq gevent distributed",
       classifiers=[

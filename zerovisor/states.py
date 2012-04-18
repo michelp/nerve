@@ -19,10 +19,10 @@ class state(object):
 
     UNKNOWN = 1000 # unicorns
 
-    exits = set(STOPPED, EXITED, FATAL, BACKOFF)
+    exits = set((STOPPED, EXITED, FATAL, BACKOFF))
 
-    def __init__(self, cmd='state'):
-        self.state = self.STOPPED
+    def __init__(self, cmd='state', default=STOPPED):
+        self.state = default
         self.cmd = cmd
 
     def __get__(self, obj, objtype=None):

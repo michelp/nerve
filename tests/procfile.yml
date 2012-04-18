@@ -1,0 +1,20 @@
+defaults:
+  endpoint: none
+  recv_in: false
+  send_out: false
+  send_err: false
+  send_all: true
+  hangout: false
+  restart_retries: 3
+  autorestart: false
+  startsecs: 1
+  exitcodes: [0, 2]
+  poll_interval: 0.1
+  ping_interval: 1
+  wait_to_die: 3
+  linger: 0
+
+tp:
+  numprocs: 3
+  procname: '{name}:{hostname}:{procnum}'
+  cmd: zvr tp --id={procnum}

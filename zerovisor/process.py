@@ -1,4 +1,6 @@
-from .desc import state 
+from . import utils
+from .states import state
+from gevent import socket
 from gevent import socket
 from tnetstring import dumps, loads
 import errno
@@ -7,10 +9,8 @@ import gevent
 import os
 import subprocess
 import sys
+import yaml
 import zmq.green as zmq
-
-
-
 
 class Popen(object):
     """
@@ -41,6 +41,7 @@ class Popen(object):
                  zv_send_out=False,
                  zv_send_err=False,
                  zv_send_all=True,
+                 zv_hangout=False,
                  zv_restart_retries=3,
                  zv_autorestart=False,
                  zv_startsecs=1,
@@ -83,13 +84,13 @@ class Popen(object):
         self.send_err = zv_send_err
         if zv_send_all:
             self.recv_in = self.send_out = self.send_err = True
-            
+
+        self.hangout = zv_hangout
         self.restart_retries = zv_restart_retries
         self.restart_attempts = 0
         self.autorestart = zv_autorestart
         self.startsecs = zv_startsecs
         self.exitcodes = set(zv_exitcodes)
-        self.state = state.STOPPED
 
         self.ping_interval = zv_ping_interval
         self.poll_interval = zv_poll_interval
@@ -184,6 +185,9 @@ class Popen(object):
         return rc
 
     def alert_exit_state(self):
+        """
+        Assign and therefore report current exit state
+        """
         if self.state == state.RUNNING:
             self.state = state.EXITED
                 
@@ -200,13 +204,14 @@ class Popen(object):
 
     def full_exit(self):
         self.alert_exit_state()
-            
-        # stop reporting yourself live
-        self.pinger.kill(block=False)
 
-        # cleanup zeromq stuff
-        self.io.close()
-        self.context.term()
+        if not self.hangout:
+            # stop reporting yourself live
+            self.pinger.kill(block=False)
+
+            # cleanup zeromq stuff
+            self.io.close()
+            self.context.term()
 
     def _start_subproc(self):
         """
@@ -224,8 +229,6 @@ class Popen(object):
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # send/recv helpers
-
     def _send(self, op, data=None):
         payload = ['', op, dumps(data)]
         self.io.send_multipart(payload)
@@ -233,13 +236,17 @@ class Popen(object):
     def _recv(self):
         return self.io.recv_multipart()
 
-    # non-blocking helpers for read/write
-
     def _read(self, handle):
+        """
+        Non-blocking read
+        """
         socket.wait_read(handle.fileno())
         return handle.read()
 
     def _write(self, handle, data):
+        """
+        Non-blocking write
+        """
         socket.wait_write(handle.fileno())
         return handle.write(data)
 
@@ -310,83 +317,160 @@ class Popen(object):
             self._send('ping', self.process.poll())
 
 
-def main():
-    from optparse import OptionParser
+class ZerovisorOpen(object):
+    proc = Popen
+    zv_defaults = dict(endpoint=None,
+                       identity=None,
+                       recv_in=False,
+                       send_out=False,
+                       send_err=False,
+                       send_all=True,
+                       hangout=False,
+                       restart_retries=3,
+                       autorestart=False,
+                       startsecs=1,
+                       exitcodes=(0,2),
+                       poll_interval=.1,
+                       ping_interval=1,
+                       wait_to_die=3,
+                       linger=0,
+                       numproc=1,
+                       name='solo')
 
-    parser = OptionParser()
-    parser.disable_interspersed_args()
+    def __init__(self, cmd, **zv_args):
+        self.numprocs = 1
+        self.cmd = cmd
+        self.args = zv_args
+        self.args = self.update_args(self.zv_defaults.copy())
+        self.commands = {}
+        if self.cmd.startswith('file:'):
+            commands = self.load_spec(self.cmd.replace('file:', ''))        
+            args = self.update_args(self.spec.pop('defaults', {}).copy())
+        else:
+            self.commands[self.args.pop('name')] = dict(cmd=cmd, **self.args))
+        self.running = []
 
-    parser.add_option('-e', '--endpoint',
-                      dest='endpoint', default='ipc://zerovisor.sock',
-                      help='Specify zerovisor endpoint.')
+    def launch_multi(self, spec, howmany):
+        assert 'procname' in spec, 'numprocs requires procname to be defined'
+        for procnum in range(howmany):
+            spec['identity'] = spec.pop('procname', self.defprocname).format(procnum=procnum, **spec) 
+            
+            
+    @staticmethod
+    def dress_args(spec):
+        spec = spec.copy()
+        cmd = spec.pop('cmd').format(**spec)
+        return cmd, dict(("zv_%s", val) %key for key, val in spec)
 
-    parser.add_option('-i', '--identity',
-                      dest='identity', default=None,
-                      help='Specify our identity to the zerovisor.')
+    def launch(self, **args):
+        cmd, args = self.dress_args(spec) 
+        p = cls.proc(cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr, **args)
 
-    parser.add_option('-I', '--recv-in',
-                      action='store_true', dest='recv_in', default=False,
-                      help='Receive stdin from zerovisor.')
+    def initialize_procs(self):
+        for name, spec in commands:
+            spec = spec.copy()
+            numprocs = spec.pop('numprocs', 1)
+            if numprocs > 1
+                self.running.extend(self.launch_multi(name, spec))
+            else:
+                self.running.append(self.launch(name, spec))
 
-    parser.add_option('-O', '--send-out',
-                      action='store_true', dest='send_out', default=False,
-                      help='Send stdout to zerovisor.')
+    @staticmethod
+    def interpolate_strings(mapping):
+        return dict((key, value.format(**mapping)) for key, value in mapping \
+                    if isinstance(value, basestring)
+    
+    def update_args(self, mapping):
+        """
+        Nondestructive update of popen argument mapping
+        """
+        mapping.update(self.args)
+        return mapping
 
-    parser.add_option('-E', '--send-err',
-                      action='store_true', dest='send_err', default=False,
-                      help='Send stderr to zerovisor.')
+    def load_spec(self, spec_file):
+        with open(spec_file) as s:
+            return yaml.load(spec_file)
+        
+    @staticmethod
+    def script_args(parser):
+        parser.add_argument('command',
+                            help='The command or command specification to open under supervision.')
+        parser.add_argument('-e', '--endpoint',
+                          dest='endpoint', default='ipc://zerovisor.sock',
+                          help='Specify zerovisor endpoint. default: %(default)s')
 
-    parser.add_option('-A', '--send-all',
-                      action='store_true', dest='send_all', default=False,
-                      help='Like -IAE, receive stdin and send both stdout and stderr.')
+        parser.add_argument('-i', '--identity',
+                          dest='identity', default=None,
+                          help='Specify our identity to the zerovisor.')
 
-    parser.add_option('-s', '--restart-retries',
-                      type="int", dest='restart_retries', default=3,
-                      help='How many retries to allow before permanent failure.')
+        parser.add_argument('-I', '--recv-in',
+                          action='store_true', dest='recv_in', default=False,
+                          help='Receive stdin from zerovisor.')
 
-    parser.add_option('-p', '--ping-interval',
-                      type="float", dest='ping_interval', default=3.0,
-                      help='Seconds between heartbeats to zerovisor.')
+        parser.add_argument('-O', '--send-out',
+                          action='store_true', dest='send_out', default=False,
+                          help='Send stdout to zerovisor.')
 
-    parser.add_option('-l', '--poll-interval',
-                      type="float", dest='poll_interval', default=.1,
-                      help='Seconds between checking subprocess health.')
+        parser.add_argument('-E', '--send-err',
+                          action='store_true', dest='send_err', default=False,
+                          help='Send stderr to zerovisor.')
 
-    parser.add_option('-w', '--wait-to-die',
-                      type="int", dest='wait_to_die', default=3,
-                      help='Seconds to wait after sending TERM to send KILL.')
+        parser.add_argument('-A', '--send-all',
+                          action='store_true', dest='send_all', default=False,
+                          help='Like -IAE, receive stdin and send both stdout and stderr.')
 
-    parser.add_option('-g', '--linger',
-                      type="int", dest='linger', default=0,
-                      help='Seconds to wait at exit for outbound messages to send.')
+        parser.add_argument('-s', '--restart-retries',
+                          type=int, dest='restart_retries', default=3,
+                          help='How many retries to allow before permanent failure. default: %(default)s')
 
-    (options, args) = parser.parse_args()
+        parser.add_argument('-p', '--ping-interval',
+                          type=float, dest='ping_interval', default=3.0,
+                          help='Seconds between heartbeats to zerovisor.')
 
-    p = Popen(args,
-              stdin=sys.stdin,
-              stdout=sys.stdout,
-              stderr=sys.stderr,
-              zv_endpoint=options.endpoint,
-              zv_identity=options.identity,
-              zv_recv_in=options.recv_in,
-              zv_send_out=options.send_out,
-              zv_send_err=options.send_err,
-              zv_send_all=options.send_all,
-              zv_restart_retries=options.restart_retries,
-              zv_ping_interval=options.ping_interval,
-              zv_poll_interval=options.poll_interval,
-              zv_wait_to_die=options.wait_to_die,
-              zv_linger=options.linger,
-              )
+        parser.add_argument('-l', '--poll-interval',
+                          type=float, dest='poll_interval', default=.1,
+                          help='Seconds between checking subprocess health. default: %(default)s')
 
-    g = gevent.spawn(p.start)
-    try:
-        g.join()
-    except KeyboardInterrupt:
-        g.kill()
-        gevent.spawn(p.terminate).join()
+        parser.add_argument('-w', '--wait-to-die',
+                          type=int, dest='wait_to_die', default=3,
+                          help='Seconds to wait after sending TERM to send KILL. default: %(default)s')
 
-    sys.exit(p.process.poll())
+        parser.add_argument('-g', '--linger',
+                          type=int, dest='linger', default=0,
+                          help='Seconds to wait at exit for outbound messages to send, default: %(default)s')
+
+        parser.add_argument('--autostart',
+                          type=int, dest='zv_autostart', default=True,
+                          help='Execute process as soon as possible default: %(default)s')
+        return parser
+
+    @classmethod
+    def script(cls, args):
+        zvo = cls(args.command,
+                  endpoint=args.endpoint,
+                  identity=args.identity,
+                  recv_in=args.recv_in,
+                  send_out=args.send_out,
+                  send_err=args.send_err,
+                  send_all=args.send_all,
+                  restart_retries=args.restart_retries,
+                  ping_interval=args.ping_interval,
+                  poll_interval=args.poll_interval,
+                  wait_to_die=args.wait_to_die,
+                  linger=args.linger)
+
+        g = gevent.spawn(p.start)
+        try:
+            g.join()
+        except KeyboardInterrupt:
+            g.kill()
+            gevent.spawn(p.terminate).join()
+
+        sys.exit(p.process.poll())
+
+
+main = utils.class_to_script(ZerovisorOpen)
+
 
 if __name__ == '__main__':
     main()
