@@ -1,4 +1,4 @@
-from .desc import state 
+from .states import state 
 from gevent import socket
 from tnetstring import dumps, loads
 import errno
