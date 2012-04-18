@@ -4,6 +4,7 @@ import errno
 import fcntl
 import gevent
 import os
+import resource
 import subprocess
 import sys
 import zmq.green as zmq
@@ -102,8 +103,8 @@ class Popen(object):
         # start the process and then the green threads the handle the
         # various i/o and signal transits
         self._start_subproc()
-
-        self._send('start', self.process.pid)
+        import pdb; pdb.set_trace()
+        self._send('start', [self.process.pid, self._get_rusage()])
 
         # spawn workers
         self.stdiner = gevent.spawn(self._write_stdin)
@@ -250,7 +251,12 @@ class Popen(object):
         """
         while not self.io.closed:
             gevent.sleep(self.ping_interval)
-            self._send('ping', self.process.poll())
+            self._send('ping', [self.process.poll(), self._get_rusage()])
+
+    def _get_rusage(self):
+        rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return dict((name, getattr(rusage, name)) for name in dir(rusage)
+                    if name.startswith('ru_'))
 
 
 def main():
