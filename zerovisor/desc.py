@@ -19,7 +19,7 @@ class state(object):
 
     UNKNOWN = 1000 # unicorns
 
-    exits = set(STOPPED, EXITED, FATAL, BACKOFF)
+    exits = set((STOPPED, EXITED, FATAL, BACKOFF))
 
     def __init__(self, cmd='state'):
         self.state = self.STOPPED
