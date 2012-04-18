@@ -1,8 +1,10 @@
 from StringIO import StringIO
+from zerovisor.states import state 
 from zerovisor.zerovisord import subscriber 
 import gevent
 import unittest
 import zerovisor
+
 
 class TestSimpleSupervision(unittest.TestCase):
     ep = 'ipc:///tmp/a'
@@ -44,20 +46,29 @@ class TestSimpleSupervision(unittest.TestCase):
         gevent.joinall([gevent.spawn(p.start)])
         #gevent.sleep(0.5)
 
-    def test_log_written_proc_started_output_and_return(self):
+    def test_simple_exec(self):
         """
-        Sanity test: Proc runs and writes log
+        Sanity test: run proc, check emitted output from zerovisord
         """
         self.basic_supervision()
+        
         assert self.lf.getvalue()
         sub = self.suball
+
         proc, cmd, out = next(sub)
         assert (proc, cmd) == ('hibob', 'start')
         assert int(out) # something coercable to an int
-        proc, cmd, out = next(sub)
-        assert proc == 'hibob' and cmd == 'out' and out.strip() == 'hi'
-        proc, cmd, out = next(sub)
-        assert proc == 'hibob' and cmd == 'return' and out == 0
+
+        self.assert_submsg(sub, ('hibob', 'state', state.STARTING))
+        self.assert_submsg(sub, ('hibob', 'out', 'hi\n'))
+        self.assert_submsg(sub, ('hibob', 'return', 0))
+        self.assert_submsg(sub, ('hibob', 'state', state.STOPPED))
+
+    def assert_submsg(self, sub, (xproc, xcmd, xout)):
+        candidate = proc, cmd, out = next(sub)
+        expected = " ".join((xproc, xcmd, str(xout)))
+        actual = " ".join(str(x) for x in candidate)
+        assert proc == xproc and cmd == xcmd and out == xout, "%s != %s" %(actual, expected)
 
     def test_subscription_filtering(self):
         sub = subscriber(self.po, ['hibob start'])
