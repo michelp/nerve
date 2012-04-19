@@ -51,4 +51,7 @@ class state(object):
         return type(name, parents, attrs)
 
 
-
+def check_state(state):
+    def check(out):
+        return out['state'] == state
+    return check
