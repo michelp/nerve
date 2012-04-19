@@ -12,6 +12,7 @@ import nose.tools as nt
 import operator as op
 import unittest
 import zerovisor
+from itertools import chain
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +76,23 @@ class SimpleBase(unittest.TestCase):
         gevent.joinall([gevent.spawn(p.start)])
 
     def check_msg(self, sub, (xproc, xcmd, xout), out_test=op.eq):
-        candidate = proc, cmd, out = next(sub)
-        expected = " ".join((xproc, xcmd, pformat(xout)))
-        actual = " ".join(str(x) for x in candidate)
-        result = proc == xproc and cmd == xcmd and out_test(out, xout), "%s != %s" %(actual.strip(), expected)
+        try:
+            proc, cmd, out = next(sub)
+        except StopIteration:
+            proc, cmd, out = ['no msg' for x in range(3)]
+
+        expected = pformat((xproc, xcmd, pformat(xout)))
+        actual = pformat((proc, cmd, pformat(out)))
+        result = (proc == xproc and cmd == xcmd and out_test(out, xout))
         self.submsg_tests.append((result, actual, expected))
         return result
 
 
 @nt.with_setup(SimpleBase.setupAll, SimpleBase.teardownAll)
 def test_pubsub():
+    """
+    Make sure that the zerovisor publisher is publishing
+    """
     setup.zerovisor._publish('howdy', 'subscriber', setup.zerovisor.tns_dumps(True))
     check = next(SimpleBase.suball)[2]
     check and logger.info("subscriber talking to zerovisor: yes")
@@ -95,9 +103,9 @@ def test_pubsub():
 def format_condition((number, result, actual, expected)):
     if result is False:
         result = "** False **"
-    out = "%d. %s %s %s" %(number, result, actual, expected)
-    return out.rjust(4)
-    
+        out = "%d. %s expected: %s  actual: %s" %(number, result, expected.rjust(20), actual)
+        return out
+    return "%d. %s expected: %s" %(number, result, expected.rjust(20))
 
 @contextmanager
 def assert_conditions(cons, format=format_condition):
@@ -115,23 +123,21 @@ def assert_conditions(cons, format=format_condition):
         yield
     finally:
         if False in set(bool(x[0]) for x in cons):
-            out = "\n".join(format(num, con) for num, con in enumerate(cons))
-            raise AssertionError("Failing condition(s):\n %s" %out)
-
-
-
+            out = "\n".join(format(chain((num,), con)) for num, con in enumerate(cons))
+            raise AssertionError("Failing condition(s):\n%s" %out)
 
 
 class TestSimpleSupervision(SimpleBase):
 
     def test_write_log(self):
-        assert setup.zerovisor.logfile.getvalue()
+        out = setup.zerovisor.logfile.getvalue()
+        assert out, 'Nothing logged'
 
     def test_simple_exec(self):
         """
         Sanity test: run proc, check emitted output from zerovisord
         """
-        sub = self.suball                
+        sub = self.suball
         with assert_conditions(self.submsg_tests):
             self.check_msg(sub, ('hibob', 'state', state.STARTING))
             self.check_msg(sub, ('hibob', 'out', 'hi\n'))
