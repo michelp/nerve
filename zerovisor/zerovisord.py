@@ -1,17 +1,28 @@
 from collections import defaultdict
-from contextlib import closing
+from contextlib import contextmanager
 from functools import wraps
+from tnetstring import dumps
 from tnetstring import loads
+from pprint import pformat
 import gevent
+import logging
 import sys
 import zmq.green as zmq
 
 
-class Zerovisor(object):
+logger = logging.getLogger(__name__)
 
-    def __init__(self, endpoint, controlpoint, pubout, logfile):
+
+class Zerovisor(object):
+    """
+    The Lord of the Prox
+    """
+    tns_loads = staticmethod(loads)
+    tns_dumps = staticmethod(dumps)
+
+    def __init__(self, endpoint, ctl_endpoint, pubout, logfile):
         self.endpoint = endpoint
-        self.controlpoint = controlpoint
+        self.ctl_endpoint = ctl_endpoint
         self.logfile = logfile
 
         self.processes = defaultdict(dict)
@@ -20,7 +31,7 @@ class Zerovisor(object):
         self.router.bind(self.endpoint)
 
         self.control = self.context.socket(zmq.REP)
-        self.control.bind(self.controlpoint)
+        self.control.bind(self.ctl_endpoint)
 
         self.pub = self.context.socket(zmq.PUB)
         self.pub.bind(pubout)
@@ -46,7 +57,7 @@ class Zerovisor(object):
         self.pub.send(id_pubout)
 
     def _log(self, sender, cmd, data):
-        self.logfile.write(str([sender, cmd, loads(data)])+'\n')
+        self.logfile.write(str([sender, cmd, self.tns_loads(data)])+'\n')
         self.logfile.flush()
         
     def _read_router(self):
@@ -77,8 +88,22 @@ def parse_pubout(msg):
     return proc, cmd, loads(data)
 
 
+@contextmanager
+def poll_and_cleanup(sock, ctx):
+    poll = zmq.Poller()
+    poll.register(sock)
+    try:
+        yield poll 
+    finally:
+        # clean up
+        poll.unregister(sock)
+        sock.close()
+        ctx.term()
+
+
 @coro
-def subscriber(pub, channels=None, parse=parse_pubout, timeout=500):
+def subscriber(pub, channels=None, parse=parse_pubout, timeout=500,
+               retries=3, sleep=0.1, logger=logger):
     """
     A generator for receiving messages from a publishing endpoint.
     
@@ -88,27 +113,30 @@ def subscriber(pub, channels=None, parse=parse_pubout, timeout=500):
     """
     ctx = zmq.Context()
     sock = ctx.socket(zmq.SUB)
-    poll = zmq.Poller()
-    with closing(sock):
-        if channels is None:
-            channels = ['']
 
-        for chan in channels:
-            sock.setsockopt(zmq.SUBSCRIBE, chan)
+    if channels is None:
+        channels = ['']
+
+    for chan in channels:
+        sock.setsockopt(zmq.SUBSCRIBE, chan)
             
-        sock.connect(pub)
-        poll.register(sock)
-        yield None
-        try:
-            while True:
-                polled_socks = dict(poll.poll(timeout))
-                if polled_socks.get(sock) == zmq.POLLIN:
-                    msg = sock.recv()
-                    yield parse(msg)
-                gevent.sleep(0.1)
-        finally:
-            poll.unregister(sock)
+    sock.connect(pub)
 
+    yield None
+    retry = 0
+    with poll_and_cleanup(sock, ctx) as poll:        
+        while retry <= retries:
+            polled_socks = dict(poll.poll(timeout))
+            if polled_socks.get(sock) == zmq.POLLIN:
+                msg = sock.recv()
+                out = parse(msg)
+                logger.debug("subscriber recv:%s", pformat(out))
+                yield out
+                retry = 0
+            else:
+                logger.debug("subscriber miss:%s", retry)
+                retry += 1
+            gevent.sleep(sleep)
             
 
 
@@ -119,7 +147,10 @@ def main():
     parser.add_option('-e', '--endpoint', dest='endpoint', default='ipc://zerovisor.sock',
                       help='Specify zerovisor endpoint.')
 
-    parser.add_option('-c', '--controlpoint', dest='controlpoint', default='ipc://control.sock',
+    parser.add_option('-o', '--pub-endpoint', dest='pub_endpoint', default='ipc://pub.sock',
+                      help='Specify zerovisor pub endpoint.')
+
+    parser.add_option('-c', '--ctl-endpoint', dest='ctl_endpoint', default='ipc://control.sock',
                       help='Specify zerovisor control endpoint.')
 
     parser.add_option('-l', '--logfile', dest='logfile', default='zerovisor.log',
@@ -140,12 +171,17 @@ def main():
 
     if options.logfile != '-':
         logfile = open(options.logfile, 'w+')
-
+    
     try:
-        Zerovisor(options.endpoint, options.controlpoint, logfile).start()
+        import pdb; pdb.set_trace()
+        g = gevent.spawn(Zerovisor(options.endpoint, options.ctl_endpoint, 
+                                   options.pub_endpoint, logfile).start)
+        g.join()
     except Exception:
         if options.debug:
             import pdb; pdb.pm()
+        else:
+            raise
 
 
 if __name__ == '__main__':

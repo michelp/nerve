@@ -5,9 +5,11 @@ import errno
 import fcntl
 import gevent
 import os
+import resource
 import subprocess
 import sys
 import zmq.green as zmq
+import time
 
 
 class Popen(object):
@@ -47,6 +49,7 @@ class Popen(object):
                  zv_ping_interval=1,
                  zv_wait_to_die=3,
                  zv_linger=0,
+                 zv_ssh_server=None,
                  ):
         """
         Spawn a subprocess.Popen with 'args', watch the process.  See
@@ -98,20 +101,24 @@ class Popen(object):
         if zv_identity is not None:
             self.io.setsockopt(zmq.IDENTITY, zv_identity)
 
-        self.io.connect(self.endpoint)
-        self.io.setsockopt(zmq.LINGER, zv_linger)
+        if zv_ssh_server is not None:
+            from zmq import ssh
+            import pdb; pdb.set_trace()
+            self.tunnel = ssh.tunnel_connection(self.io, self.endpoint, 
+                                                zv_ssh_server)
+        else:
+            self.io.connect(self.endpoint)
 
-    def __getattr__(self, name):
-        return getattr(self.process, name)
+        self.io.setsockopt(zmq.LINGER, zv_linger)
 
     def start(self):
         # start the process and then the green threads the handle the
         # various i/o and signal transits
         self.uptime = 0
         self._start_subproc()
-        
-        self._send('start', self.process.pid)
         self.state = state.STARTING
+        #self._send('start', [self.process.pid, self._get_rusage()])
+
 
         # spawn workers
         self.stdiner = gevent.spawn(self._write_stdin)
@@ -266,6 +273,16 @@ class Popen(object):
             elif cmd == 'rusage':
                 self._send('rusage', [self.uptime, self.state])
 
+    def resource_info(self):
+        # make this pluggable??
+        info = dict(rusage=self._get_rusage(),
+                    uptime=self.uptime,
+                    state_name=state.to_str(self.state),
+                    state=self.state,
+                    pid=self.process.pid,
+                    time=time.time())
+        return info
+
     def _read_stdout(self):
         while True:
             data = self._read(self.process.stdout)
@@ -304,58 +321,130 @@ class Popen(object):
         """
         while not self.io.closed:
             gevent.sleep(self.ping_interval)
-            self._send('ping', self.process.poll())
+            self._send('ping', [self.process.poll(), self._get_rusage()])
+
+    def _get_rusage(self):
+        rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return dict((name, getattr(rusage, name)) for name in dir(rusage)
+                    if name.startswith('ru_'))
 
 
 def main():
     from optparse import OptionParser
 
+    configs = {}
+    config_file = None
+    try:
+        if '-c' in sys.argv:
+            config_file = sys.argv[sys.argv.index('-c') + 1]
+        elif '--config' in sys.argv:
+            config_file = sys.argv[sys.argv.index('--config') + 1]
+    except IndexError:
+        print 'Must provide a config file following -c or --config option.'
+        return
+
+    if config_file is not None:
+        import ConfigParser
+        cp = ConfigParser.ConfigParser()
+        cp.read(config_file)
+        for o in cp.options('zvopen'):
+            configs[o] = cp.get('zvopen', o)
+
     parser = OptionParser()
     parser.disable_interspersed_args()
 
-    parser.add_option('-e', '--endpoint',
-                      dest='endpoint', default='ipc://zerovisor.sock',
-                      help='Specify zerovisor endpoint.')
+    parser.add_option(
+        '-c', '--config', 
+        dest='config', default=False,
+        help='Specify config file.')
 
-    parser.add_option('-i', '--identity',
-                      dest='identity', default=None,
-                      help='Specify our identity to the zerovisor.')
+    parser.add_option(
+        '-e', '--endpoint',
+        dest='endpoint', 
+        default=configs.get('endpoint', 'ipc://zerovisor.sock'),
+        help='Specify zerovisor endpoint.')
 
-    parser.add_option('-I', '--recv-in',
-                      action='store_true', dest='recv_in', default=False,
-                      help='Receive stdin from zerovisor.')
+    parser.add_option(
+        '-i', '--identity',
+        dest='identity', 
+        default=configs.get('identity'),
+        help='Specify our identity to the zerovisor.')
 
-    parser.add_option('-O', '--send-out',
-                      action='store_true', dest='send_out', default=False,
-                      help='Send stdout to zerovisor.')
+    parser.add_option(
+        '-I', '--recv-in',
+        action='store_true', 
+        dest='recv_in', 
+        default=configs.get('recv-in', False),
+        help='Receive stdin from zerovisor.')
 
-    parser.add_option('-E', '--send-err',
-                      action='store_true', dest='send_err', default=False,
-                      help='Send stderr to zerovisor.')
+    parser.add_option(
+        '-O', '--send-out',
+        action='store_true', 
+        dest='send_out', 
+        default=configs.get('send-out', False),
+        help='Send stdout to zerovisor.')
 
-    parser.add_option('-A', '--send-all',
-                      action='store_true', dest='send_all', default=False,
-                      help='Like -IAE, receive stdin and send both stdout and stderr.')
+    parser.add_option(
+        '-E', '--send-err',
+        action='store_true', 
+        dest='send_err', 
+        default=configs.get('send-err', False),
+        help='Send stderr to zerovisor.')
 
-    parser.add_option('-s', '--restart-retries',
-                      type="int", dest='restart_retries', default=3,
-                      help='How many retries to allow before permanent failure.')
+    parser.add_option(
+        '-A', '--send-all',
+        action='store_true', 
+        dest='send_all', 
+        default=configs.get('send-all', False),
+        help='Like -IAE, receive stdin and send both stdout and stderr.')
 
-    parser.add_option('-p', '--ping-interval',
-                      type="float", dest='ping_interval', default=3.0,
-                      help='Seconds between heartbeats to zerovisor.')
+    parser.add_option(
+        '-s', '--restart-retries',
+        type="int", 
+        dest='restart_retries', 
+        default=int(configs.get('restart-retries', 3)),
+        help='How many retries to allow before permanent failure.')
 
-    parser.add_option('-l', '--poll-interval',
-                      type="float", dest='poll_interval', default=.1,
-                      help='Seconds between checking subprocess health.')
+    parser.add_option(
+        '-p', '--ping-interval',
+        type="float", 
+        dest='ping_interval', 
+        default=float(configs.get('ping-interval', 3.0)),
+        help='Seconds between heartbeats to zerovisor.')
 
-    parser.add_option('-w', '--wait-to-die',
-                      type="int", dest='wait_to_die', default=3,
-                      help='Seconds to wait after sending TERM to send KILL.')
+    parser.add_option(
+        '-l', '--poll-interval',
+        type="float", 
+        dest='poll_interval', 
+        default=float(configs.get('poll-interval', .1)),
+        help='Seconds between checking subprocess health.')
 
-    parser.add_option('-g', '--linger',
-                      type="int", dest='linger', default=0,
-                      help='Seconds to wait at exit for outbound messages to send.')
+    parser.add_option(
+        '-w', '--wait-to-die',
+        type="int", 
+        dest='wait_to_die', 
+        default=int(configs.get('wait-to-die', 3)),
+        help='Seconds to wait after sending TERM to send KILL.')
+
+    parser.add_option(
+        '-g', '--linger',
+        type="int", 
+        dest='linger', 
+        default=int(configs.get('linger', 1)),
+        help='Seconds to wait at exit for outbound messages to send.')
+
+    parser.add_option(
+        '-S', '--ssh-server',
+        dest='ssh_server', 
+        default=configs.get('ssh-server'),
+        help='Use ssh tunnel to server to connect to zerovisor endpoint.')
+
+    parser.add_option(
+        '-d', '--debug', 
+        action='store_true', 
+        dest='debug', 
+        default=configs.get('debug'),
+        help='Debug on unhandled error.')
 
     (options, args) = parser.parse_args()
 
@@ -374,6 +463,7 @@ def main():
               zv_poll_interval=options.poll_interval,
               zv_wait_to_die=options.wait_to_die,
               zv_linger=options.linger,
+              zv_ssh_server=options.ssh_server,
               )
 
     g = gevent.spawn(p.start)
