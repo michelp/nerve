@@ -1,3 +1,4 @@
+from .states import state 
 from gevent import socket
 from tnetstring import dumps, loads
 import errno
@@ -8,6 +9,7 @@ import resource
 import subprocess
 import sys
 import zmq.green as zmq
+import time
 
 
 class Popen(object):
@@ -17,7 +19,8 @@ class Popen(object):
     """
 
     identity = None
-
+    state = state()
+    
     def __init__(self, args,
                  bufsize=0,
                  executable=None,
@@ -39,6 +42,9 @@ class Popen(object):
                  zv_send_err=False,
                  zv_send_all=True,
                  zv_restart_retries=3,
+                 zv_autorestart=False,
+                 zv_startsecs=1,
+                 zv_exitcodes=(0,2),
                  zv_poll_interval=.1,
                  zv_ping_interval=1,
                  zv_wait_to_die=3,
@@ -78,11 +84,17 @@ class Popen(object):
         self.send_err = zv_send_err
         if zv_send_all:
             self.recv_in = self.send_out = self.send_err = True
-
+            
         self.restart_retries = zv_restart_retries
+        self.restart_attempts = 0
+        self.autorestart = zv_autorestart
+        self.startsecs = zv_startsecs
+        self.exitcodes = set(zv_exitcodes)
+
         self.ping_interval = zv_ping_interval
         self.poll_interval = zv_poll_interval
         self.wait_to_die = zv_wait_to_die
+        self.uptime = None
 
         # create a connection to the zerovisor router
         self.io = self.context.socket(zmq.DEALER)
@@ -102,9 +114,11 @@ class Popen(object):
     def start(self):
         # start the process and then the green threads the handle the
         # various i/o and signal transits
+        self.uptime = 0
         self._start_subproc()
-        import pdb; pdb.set_trace()
-        self._send('start', [self.process.pid, self._get_rusage()])
+        self.state = state.STARTING
+        #self._send('start', [self.process.pid, self._get_rusage()])
+
 
         # spawn workers
         self.stdiner = gevent.spawn(self._write_stdin)
@@ -117,17 +131,33 @@ class Popen(object):
         self.poller.join()
 
         # if poll returns, then the process is likely dead, cleanup.
-        self.terminate()
+        rc = self.terminate()
 
-    def terminate(self):
+        #attempt a restart
+        self.handle_restart(rc)
+
+    def handle_restart(self, rc):
+        if self.autorestart == False:
+            return self.full_exit()
+        
+        if self.autorestart == True:
+            return self.start()
+
+        if 0 < self.uptime < self.startsec and self.start_attempts < self.restart_retries:
+            self.start_attempts += 1
+            return self.start()
+
+        if not rc in self.exitcodes and self.autorestart == 'unexpected':
+            return self.start()
+
+        return self.full_exit()
+
+    def terminate(self, with_exit=False):
         # terminate the possibly dead process, clean up the blood and
         # guts
         self._flush()
         # rough here sketch sucks.  If the proc hasn't died,
         # try to TERM it, then KILL it
-
-        # stop reporting yourself live
-        self.pinger.kill(block=False)
 
         # stab it repeatedly, improve the logic here
         while self.wait_to_die and self.process.poll() is None:
@@ -154,11 +184,33 @@ class Popen(object):
             self._send('signal', rc) # killed by signal
         else:
             self._send('return',  rc) # returned code
+        self.state = state.STOPPED
+        return rc
+
+    def alert_exit_state(self):
+        if self.state == state.RUNNING:
+            self.state = state.EXITED
+                
+        if self.state == state.STARTING:
+            if self.uptime:
+                self.state = state.BACKOFF
+            else:
+                self.state = state.FATAL
+                
+        if not self.state in state.exits:
+            self.state = state.EXITED
+
+        return self.state
+
+    def full_exit(self):
+        self.alert_exit_state()
+            
+        # stop reporting yourself live
+        self.pinger.kill(block=False)
 
         # cleanup zeromq stuff
         self.io.close()
         self.context.term()
-        return rc
 
     def _start_subproc(self):
         """
@@ -179,7 +231,10 @@ class Popen(object):
     # send/recv helpers
 
     def _send(self, op, data=None):
-        payload = ['', op, dumps(data)]
+        try:
+            payload = ['', op, dumps(data)]
+        except ValueError:
+            import pdb;pdb.set_trace()
         self.io.send_multipart(payload)
 
     def _recv(self):
@@ -219,7 +274,17 @@ class Popen(object):
                 self._flush()
 
             elif cmd == 'rusage':
-                pass
+                self._send('rusage', [self.uptime, self.state])
+
+    def resource_info(self):
+        # make this pluggable??
+        info = dict(rusage=self._get_rusage(),
+                    uptime=self.uptime,
+                    state_name=state.to_str[self.state],
+                    state=self.state,
+                    pid=self.process.pid,
+                    time=time.time())
+        return info
 
     def _read_stdout(self):
         while True:
@@ -242,7 +307,15 @@ class Popen(object):
                 gevent.spawn(self._write, self.stderr, data)
 
     def _poll_process(self):
+        """
+        Timekeeper and process checker.
+        """
         while self.process.poll() is None:
+            self.uptime += self.poll_interval
+            if self.uptime > self.startsecs and self.state != state.RUNNING:
+                self.start_attempts = 0
+                self.state = state.RUNNING
+                
             gevent.sleep(self.poll_interval)
 
     def _pinger(self):
