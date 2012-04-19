@@ -231,7 +231,10 @@ class Popen(object):
     # send/recv helpers
 
     def _send(self, op, data=None):
-        payload = ['', op, dumps(data)]
+        try:
+            payload = ['', op, dumps(data)]
+        except ValueError:
+            import pdb;pdb.set_trace()
         self.io.send_multipart(payload)
 
     def _recv(self):
@@ -277,7 +280,7 @@ class Popen(object):
         # make this pluggable??
         info = dict(rusage=self._get_rusage(),
                     uptime=self.uptime,
-                    state_name=state.to_str(self.state),
+                    state_name=state.to_str[self.state],
                     state=self.state,
                     pid=self.process.pid,
                     time=time.time())
