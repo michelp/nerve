@@ -3,8 +3,11 @@ Functional tests for process running
 """
 from StringIO import StringIO
 from contextlib import contextmanager
+from functools import partial
+from itertools import chain
 from pprint import pformat
-from zerovisor.states import state 
+from zerovisor import states 
+from zerovisor.states import state
 from zerovisor.zerovisord import subscriber
 import gevent
 import logging
@@ -12,7 +15,6 @@ import nose.tools as nt
 import operator as op
 import unittest
 import zerovisor
-from itertools import chain
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,9 @@ class SimpleBase(unittest.TestCase):
         gevent.joinall([gevent.spawn(p.start)])
 
     def check_msg(self, sub, (xproc, xcmd, xout), out_test=op.eq):
+        if out_test is op.eq:
+            out_test = partial(op.eq, xout)
+            
         try:
             proc, cmd, out = next(sub)
         except StopIteration:
@@ -83,7 +88,7 @@ class SimpleBase(unittest.TestCase):
 
         expected = pformat((xproc, xcmd, pformat(xout)))
         actual = pformat((proc, cmd, pformat(out)))
-        result = (proc == xproc and cmd == xcmd and out_test(out, xout))
+        result = (proc == xproc and cmd == xcmd and out_test(out))
         self.submsg_tests.append((result, actual, expected))
         return result
 
@@ -106,6 +111,7 @@ def format_condition((number, result, actual, expected)):
         out = "%d. %s expected: %s  actual: %s" %(number, result, expected.rjust(20), actual)
         return out
     return "%d. %s expected: %s" %(number, result, expected.rjust(20))
+
 
 @contextmanager
 def assert_conditions(cons, format=format_condition):
@@ -138,11 +144,13 @@ class TestSimpleSupervision(SimpleBase):
         Sanity test: run proc, check emitted output from zerovisord
         """
         sub = self.suball
+        STARTING = states.check_state(state.STARTING)
+        STOPPED = states.check_state(state.STOPPED)
         with assert_conditions(self.submsg_tests):
-            self.check_msg(sub, ('hibob', 'state', state.STARTING))
+            self.check_msg(sub, ('hibob', 'state', 'STARTING'), STARTING)
             self.check_msg(sub, ('hibob', 'out', 'hi\n'))
             self.check_msg(sub, ('hibob', 'return', 0))
-            self.check_msg(sub, ('hibob', 'state', state.STOPPED))
+            self.check_msg(sub, ('hibob', 'state', 'STOPPED'), STOPPED)
 
 
 
