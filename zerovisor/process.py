@@ -1,11 +1,11 @@
 from .states import state 
 from gevent import socket
-from tnetstring import dumps, loads
+from cPickle import dumps, loads
 import errno
 import fcntl
 import gevent
 import os
-import resource
+import psutil
 import subprocess
 import sys
 import zmq.green as zmq
@@ -117,7 +117,7 @@ class Popen(object):
         self.uptime = 0
         self._start_subproc()
         self.state = state.STARTING
-        #self._send('start', [self.process.pid, self._get_rusage()])
+        #self._send('start', [self.process.pid, self._get_psutil()])
 
 
         # spawn workers
@@ -273,12 +273,9 @@ class Popen(object):
             elif cmd == 'flush':
                 self._flush()
 
-            elif cmd == 'rusage':
-                self._send('rusage', [self.uptime, self.state])
-
     def resource_info(self):
         # make this pluggable??
-        info = dict(rusage=self._get_rusage(),
+        info = dict(psinfo=self._get_psutil(),
                     uptime=self.uptime,
                     state_name=state.to_str[self.state],
                     state=self.state,
@@ -324,12 +321,32 @@ class Popen(object):
         """
         while not self.io.closed:
             gevent.sleep(self.ping_interval)
-            self._send('ping', [self.process.poll(), self._get_rusage()])
+            self._send('ping', [self.process.poll(), self._get_psutil()])
 
-    def _get_rusage(self):
-        rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
-        return dict((name, getattr(rusage, name)) for name in dir(rusage)
-                    if name.startswith('ru_'))
+    def _get_psutil(self):
+        p = psutil.Process(self.process.pid)
+        data = dict(
+            cmdline=p.cmdline,
+            create_time=p.create_time,
+            cpu_percent=p.get_cpu_percent(),
+            cpu_times=p.get_cpu_times()._asdict(),
+            ionice=p.get_ionice()._asdict(),
+            memory_info=p.get_memory_info()._asdict(),
+            memory_percent=p.get_memory_percent(),
+            num_threads=p.get_num_threads(),
+            gids=p.gids._asdict(),
+            is_running=p.is_running(),
+            name=p.name,
+            nice=p.nice,
+            pid=p.pid,
+            ppid=p.ppid,
+            status=p.status,
+            terminal=p.terminal,
+            uids=p.uids._asdict(),
+            username=p.username,
+            ) 
+        return data
+ 
 
 
 def main():

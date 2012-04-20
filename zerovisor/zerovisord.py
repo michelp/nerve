@@ -1,8 +1,7 @@
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import wraps
-from tnetstring import dumps
-from tnetstring import loads
+from cPickle import dumps, loads
 from pprint import pformat
 import gevent
 import logging
