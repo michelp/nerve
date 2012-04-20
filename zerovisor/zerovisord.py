@@ -172,7 +172,6 @@ def main():
         logfile = open(options.logfile, 'w+')
     
     try:
-        import pdb; pdb.set_trace()
         g = gevent.spawn(Zerovisor(options.endpoint, options.ctl_endpoint, 
                                    options.pub_endpoint, logfile).start)
         g.join()
