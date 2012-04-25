@@ -11,13 +11,15 @@ class state(object):
                    # subsequently exited too quickly to move to the
                    # RUNNING state.
 
-    STOPPING = 40 # The process is stopping due to a stop request.
+    STOPPING = 40  # The process is stopping due to a stop request.
 
-    EXITED = 100  # The process exited from the RUNNING state (expectedly or unexpectedly).
+    WAITING = 50   # no process is running, waiting to start
 
-    FATAL = 200   # The process could not be started successfully.
+    EXITED = 100   # The process exited from the RUNNING state (expectedly or unexpectedly).
+
+    FATAL = 200    # The process could not be started successfully.
     
-    UNKNOWN = 1000  # unicorns
+    UNKNOWN = 1000 # unicorns
 
     exits = set((STOPPED, EXITED, FATAL, BACKOFF))
     
@@ -34,8 +36,14 @@ class state(object):
         return self.state
 
     def __set__(self, obj, value):
+        if self.state == self.WAITING and value != self.WAITING:
+            obj.active.set()
+        elif value == self.WAITING:
+            obj.active.clear()
+
         self.state = value # validate??
-        self._report(obj, value)
+        if value != self.WAITING:
+            self._report(obj, value)
 
     def _report(self, proc, value):
         value = proc.resource_info()

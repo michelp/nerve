@@ -1,5 +1,6 @@
 from .states import state 
 from gevent import socket
+from gevent.event import Event
 from cPickle import dumps, loads
 import errno
 import fcntl
@@ -12,16 +13,18 @@ import zmq.green as zmq
 import time
 
 
-class Popen(object):
+class Process(object):
     """
     Spawn and watch a subprocess and send interesting events to the
-    zerovisor.  Acts like 'subprocess.Popen'.
+    zerovisor.  Acts a lot like 'subprocess.Popen'.
     """
 
+    process = None
     identity = None
     state = state()
     
-    def __init__(self, args,
+    def __init__(self, 
+                 args=None,                # popen style args
                  bufsize=0,
                  executable=None,
                  stdin=None,
@@ -35,27 +38,28 @@ class Popen(object):
                  universal_newlines=False,
                  startupinfo=None,
                  creationflags=0,
-                 zv_endpoint=None,
-                 zv_identity=None,
-                 zv_recv_in=False,
-                 zv_send_out=False,
-                 zv_send_err=False,
-                 zv_send_all=True,
-                 zv_restart_retries=3,
-                 zv_autorestart=False,
-                 zv_startsecs=1,
-                 zv_exitcodes=(0,2),
-                 zv_poll_interval=.1,
-                 zv_ping_interval=1,
-                 zv_wait_to_die=3,
-                 zv_linger=0,
-                 zv_ssh_server=None,
+
+                 nrv_endpoint=None,     # endpoint of center
+                 nrv_identity=None,     # id of 0mq socket
+                 nrv_recv_in=False,     # recv stdin from cetner?
+                 nrv_send_out=False,    # send stdout to center?
+                 nrv_send_err=False,    # send stderr to center?
+                 nrv_send_all=True,     # send/recv stdin/out/err?
+                 nrv_restart_retries=3, # # of process restarts
+                 nrv_autorestart=False, # restart failed process?
+                 nrv_startsecs=1,       # how long to try restarting
+                 nrv_exitcodes=(0,2),   # "good" exit codes, no restart
+                 nrv_poll_interval=.1,  # interval to poll subprocess for life
+                 nrv_ping_interval=1,   # interval to ping the center with stats
+                 nrv_wait_to_die=3,     # time to wait for the subproc to die
+                 nrv_linger=0,          # 0mq socket linger
+                 nrv_ssh_server=None,   # ssh server to tunnel to center endpoint
                  ):
         """
         Spawn a subprocess.Popen with 'args', watch the process.  See
-        'zvopen --help' for description of options.
+        'nrvopen --help' for description of options.
         """
-        self.endpoint = zv_endpoint
+        self.endpoint = nrv_endpoint
         self.args = args
         self.kwargs = dict(
             bufsize=bufsize,
@@ -73,52 +77,54 @@ class Popen(object):
             creationflags=creationflags,
             )
 
+        self.active = Event()
+        self.active.set()
+
         self.context = zmq.Context()
 
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
 
-        self.recv_in = zv_recv_in
-        self.send_out = zv_send_out
-        self.send_err = zv_send_err
-        if zv_send_all:
+        self.recv_in = nrv_recv_in
+        self.send_out = nrv_send_out
+        self.send_err = nrv_send_err
+        if nrv_send_all:
             self.recv_in = self.send_out = self.send_err = True
             
-        self.restart_retries = zv_restart_retries
+        self.restart_retries = nrv_restart_retries
         self.restart_attempts = 0
-        self.autorestart = zv_autorestart
-        self.startsecs = zv_startsecs
-        self.exitcodes = set(zv_exitcodes)
+        self.autorestart = nrv_autorestart
+        self.startsecs = nrv_startsecs
+        self.exitcodes = set(nrv_exitcodes)
 
-        self.ping_interval = zv_ping_interval
-        self.poll_interval = zv_poll_interval
-        self.wait_to_die = zv_wait_to_die
+        self.ping_interval = nrv_ping_interval
+        self.poll_interval = nrv_poll_interval
+        self.wait_to_die = nrv_wait_to_die
         self.uptime = None
 
         # create a connection to the zerovisor router
         self.io = self.context.socket(zmq.DEALER)
-        if zv_identity is not None:
-            self.io.setsockopt(zmq.IDENTITY, zv_identity)
+        if nrv_identity is not None:
+            self.io.setsockopt(zmq.IDENTITY, nrv_identity)
 
-        if zv_ssh_server is not None:
+        if nrv_ssh_server is not None:
             from zmq import ssh
-            import pdb; pdb.set_trace()
             self.tunnel = ssh.tunnel_connection(self.io, self.endpoint, 
-                                                zv_ssh_server)
+                                                nrv_ssh_server)
         else:
             self.io.connect(self.endpoint)
 
-        self.io.setsockopt(zmq.LINGER, zv_linger)
+        self.io.setsockopt(zmq.LINGER, nrv_linger)
 
     def start(self):
         # start the process and then the green threads the handle the
         # various i/o and signal transits
         self.uptime = 0
-        self._start_subproc()
-        self.state = state.STARTING
-        #self._send('start', [self.process.pid, self._get_psutil()])
-
+        if self.args:
+            self._start_subproc()
+        else:
+            self.state = state.WAITING
 
         # spawn workers
         self.stdiner = gevent.spawn(self._write_stdin)
@@ -131,10 +137,10 @@ class Popen(object):
         self.poller.join()
 
         # if poll returns, then the process is likely dead, cleanup.
-        rc = self.terminate()
-
-        #attempt a restart
-        self.handle_restart(rc)
+        if self.process:
+            rc = self.terminate()
+            #attempt a restart
+            self.handle_restart(rc)
 
     def handle_restart(self, rc):
         if self.autorestart == False:
@@ -222,11 +228,12 @@ class Popen(object):
         fcntl.fcntl(proc.stdin, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stdout, fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(proc.stderr, fcntl.F_SETFL, os.O_NONBLOCK)
+        self.state = state.STARTING
 
     def _flush(self):
-        self.process.stdin.flush()
-        sys.stdout.flush()
-        sys.stderr.flush()
+        if self.process:
+            self.process.stdout.flush()
+            self.process.stderr.flush()
 
     # send/recv helpers
 
@@ -279,12 +286,12 @@ class Popen(object):
                     uptime=self.uptime,
                     state_name=state.to_str[self.state],
                     state=self.state,
-                    pid=self.process.pid,
                     time=time.time())
         return info
 
     def _read_stdout(self):
         while True:
+            self.active.wait()
             data = self._read(self.process.stdout)
             if not data:
                 return # the pipe is closed
@@ -295,6 +302,7 @@ class Popen(object):
 
     def _read_stderr(self):
         while True:
+            self.active.wait()
             data = self._read(self.process.stderr)
             if not data:
                 return
@@ -307,6 +315,7 @@ class Popen(object):
         """
         Timekeeper and process checker.
         """
+        self.active.wait()
         while self.process.poll() is None:
             self.uptime += self.poll_interval
             if self.uptime > self.startsecs and self.state != state.RUNNING:
@@ -320,8 +329,9 @@ class Popen(object):
         While io connection to zerovisor is open, poll the process
         """
         while not self.io.closed:
+            self.active.wait()
             gevent.sleep(self.ping_interval)
-            self._send('ping', [self.process.poll(), self._get_psutil()])
+            self._send('ping', [self.process.poll(), self.resource_info()])
 
     def _get_psutil(self):
         p = psutil.Process(self.process.pid)
@@ -367,8 +377,8 @@ def main():
         import ConfigParser
         cp = ConfigParser.ConfigParser()
         cp.read(config_file)
-        for o in cp.options('zvopen'):
-            configs[o] = cp.get('zvopen', o)
+        for o in cp.options('nrvopen'):
+            configs[o] = cp.get('nrvopen', o)
 
     parser = OptionParser()
     parser.disable_interspersed_args()
@@ -468,32 +478,34 @@ def main():
 
     (options, args) = parser.parse_args()
 
-    p = Popen(args,
-              stdin=sys.stdin,
-              stdout=sys.stdout,
-              stderr=sys.stderr,
-              zv_endpoint=options.endpoint,
-              zv_identity=options.identity,
-              zv_recv_in=options.recv_in,
-              zv_send_out=options.send_out,
-              zv_send_err=options.send_err,
-              zv_send_all=options.send_all,
-              zv_restart_retries=options.restart_retries,
-              zv_ping_interval=options.ping_interval,
-              zv_poll_interval=options.poll_interval,
-              zv_wait_to_die=options.wait_to_die,
-              zv_linger=options.linger,
-              zv_ssh_server=options.ssh_server,
-              )
+    p = Process(
+        args,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        nrv_endpoint=options.endpoint,
+        nrv_identity=options.identity,
+        nrv_recv_in=options.recv_in,
+        nrv_send_out=options.send_out,
+        nrv_send_err=options.send_err,
+        nrv_send_all=options.send_all,
+        nrv_restart_retries=options.restart_retries,
+        nrv_ping_interval=options.ping_interval,
+        nrv_poll_interval=options.poll_interval,
+        nrv_wait_to_die=options.wait_to_die,
+        nrv_linger=options.linger,
+        nrv_ssh_server=options.ssh_server,
+        )
 
     g = gevent.spawn(p.start)
     try:
         g.join()
     except KeyboardInterrupt:
         g.kill()
-        gevent.spawn(p.terminate).join()
-
-    sys.exit(p.process.poll())
+        if p.process:
+            gevent.spawn(p.terminate).join()
+    if p.process:
+        sys.exit(p.process.poll())
 
 if __name__ == '__main__':
     main()

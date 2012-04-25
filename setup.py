@@ -3,7 +3,7 @@ from setuptools import setup
 with open('VERSION', 'rb') as version_file:
     version = version_file.read().strip()
 
-setup(name='zerovisor',
+setup(name='nerve',
       version=version,
       description='Distributed, zero-configuration process supervision.',
       long_description=" ".join("""
@@ -11,7 +11,7 @@ setup(name='zerovisor',
       """.split()),
       author='Michel Pelletier',
       author_email='pelletier.michel@yahoo.com',
-      packages=['zerovisor'],
+      packages=['nerve'],
       include_package_data=True,
       install_requires="""
         pyzmq
@@ -20,8 +20,8 @@ setup(name='zerovisor',
         python-daemon
         """,
       entry_points={'console_scripts': """
-        zerovisord = zerovisor.zerovisord:main
-        zvopen = zerovisor.process:main
+        nrv-center = zerovisor.center:main
+        nrv-open = zerovisor.process:main
       """},
       keywords="process supervision zeromq 0mq pyzmq gevent distributed",
       classifiers=[
