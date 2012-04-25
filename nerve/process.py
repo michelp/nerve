@@ -334,28 +334,29 @@ class Process(object):
             self._send('ping', [self.process.poll(), self.resource_info()])
 
     def _get_psutil(self):
-        p = psutil.Process(self.process.pid)
-        data = dict(
-            cmdline=p.cmdline,
-            create_time=p.create_time,
-            cpu_percent=p.get_cpu_percent(),
-            cpu_times=p.get_cpu_times()._asdict(),
-            ionice=p.get_ionice()._asdict(),
-            memory_info=p.get_memory_info()._asdict(),
-            memory_percent=p.get_memory_percent(),
-            num_threads=p.get_num_threads(),
-            gids=p.gids._asdict(),
-            is_running=p.is_running(),
-            name=p.name,
-            nice=p.nice,
-            pid=p.pid,
-            ppid=p.ppid,
-            status=p.status,
-            terminal=p.terminal,
-            uids=p.uids._asdict(),
-            username=p.username,
-            ) 
-        return data
+        if self.process.poll() is None:
+            p = psutil.Process(self.process.pid)
+            data = dict(
+                cmdline=p.cmdline,
+                create_time=p.create_time,
+                cpu_percent=p.get_cpu_percent(),
+                cpu_times=p.get_cpu_times()._asdict(),
+                ionice=p.get_ionice()._asdict(),
+                memory_info=p.get_memory_info()._asdict(),
+                memory_percent=p.get_memory_percent(),
+                num_threads=p.get_num_threads(),
+                gids=p.gids._asdict(),
+                is_running=p.is_running(),
+                name=p.name,
+                nice=p.nice,
+                pid=p.pid,
+                ppid=p.ppid,
+                status=p.status,
+                terminal=p.terminal,
+                uids=p.uids._asdict(),
+                username=p.username,
+                ) 
+            return data
  
 
 

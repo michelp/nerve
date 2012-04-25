@@ -20,13 +20,12 @@ setup(name='nerve',
         python-daemon
         """,
       entry_points={'console_scripts': """
-        nrv-center = zerovisor.center:main
-        nrv-open = zerovisor.process:main
+        nrv-center = nerve.center:main
+        nrv-open = nerve.process:main
       """},
       keywords="process supervision zeromq 0mq pyzmq gevent distributed",
       classifiers=[
         'Development Status :: 3 - Alpha',
-        'Intended Audience :: Hackers',
         'Natural Language :: English',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
