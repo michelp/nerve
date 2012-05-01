@@ -2,6 +2,9 @@ from .states import state
 from gevent import socket
 from gevent.event import Event
 from cPickle import dumps, loads
+from datetime import datetime
+from uuid import uuid1
+
 import errno
 import fcntl
 import gevent
@@ -10,7 +13,6 @@ import psutil
 import subprocess
 import sys
 import zmq.green as zmq
-import time
 
 
 class Process(object):
@@ -21,6 +23,7 @@ class Process(object):
 
     process = None
     identity = None
+    uuid = None
     state = state()
     
     def __init__(self, 
@@ -61,6 +64,8 @@ class Process(object):
         """
         self.endpoint = nrv_endpoint
         self.args = args
+
+        # pass most args to Popen, but force PIPEs for stdio
         self.kwargs = dict(
             bufsize=bufsize,
             executable=executable,
@@ -187,9 +192,9 @@ class Process(object):
         # before we go, send off the autopsy report
         rc = self.process.returncode
         if rc < 0:
-            self._send('signal', rc) # killed by signal
+            self._send('signal', [self.uuid, rc]) # killed by signal
         else:
-            self._send('return',  rc) # returned code
+            self._send('return',  [self.uuid, rc]) # returned code
         self.state = state.STOPPED
         return rc
 
@@ -223,6 +228,7 @@ class Process(object):
         Create subprocess.Popen object and set all file descriptors
         not to block.
         """
+        self.uuid = uuid1().hex
         self.process = proc = subprocess.Popen(self.args, **self.kwargs)
 
         fcntl.fcntl(proc.stdin, fcntl.F_SETFL, os.O_NONBLOCK)
@@ -238,10 +244,7 @@ class Process(object):
     # send/recv helpers
 
     def _send(self, op, data=None):
-        try:
-            payload = ['', op, dumps(data)]
-        except ValueError:
-            import pdb;pdb.set_trace()
+        payload = ['', 'process', op, dumps(data)]
         self.io.send_multipart(payload)
 
     def _recv(self):
@@ -282,11 +285,12 @@ class Process(object):
 
     def resource_info(self):
         # make this pluggable??
-        info = dict(psinfo=self._get_psutil(),
+        info = dict(uuid=self.uuid,
                     uptime=self.uptime,
                     state_name=state.to_str[self.state],
                     state=self.state,
-                    time=time.time())
+                    ping_time=datetime.utcnow())
+        info.update(self._get_psutil())
         return info
 
     def _read_stdout(self):
@@ -331,21 +335,26 @@ class Process(object):
         while not self.io.closed:
             self.active.wait()
             gevent.sleep(self.ping_interval)
-            self._send('ping', [self.process.poll(), self.resource_info()])
+            self._send('ping', self.resource_info())
 
     def _get_psutil(self):
         if self.process.poll() is None:
             p = psutil.Process(self.process.pid)
             data = dict(
-                cmdline=p.cmdline,
-                create_time=p.create_time,
+                cmdline=' '.join(p.cmdline),
+                create_time=datetime.fromtimestamp(p.create_time),
                 cpu_percent=p.get_cpu_percent(),
-                cpu_times=p.get_cpu_times()._asdict(),
-                ionice=p.get_ionice()._asdict(),
-                memory_info=p.get_memory_info()._asdict(),
+                cpu_user=p.get_cpu_times().user,
+                cpu_system=p.get_cpu_times().system,
+                ionice_class=p.get_ionice().ioclass,
+                ionice_value=p.get_ionice().value,
+                memory_rss=p.get_memory_info().rss,
+                memory_vms=p.get_memory_info().vms,
                 memory_percent=p.get_memory_percent(),
                 num_threads=p.get_num_threads(),
-                gids=p.gids._asdict(),
+                gid_real=p.gids.real,
+                gid_effective=p.gids.effective,
+                gid_saved=p.gids.saved,
                 is_running=p.is_running(),
                 name=p.name,
                 nice=p.nice,
@@ -353,12 +362,13 @@ class Process(object):
                 ppid=p.ppid,
                 status=p.status,
                 terminal=p.terminal,
-                uids=p.uids._asdict(),
+                uid_real=p.gids.real,
+                uid_effective=p.gids.effective,
+                uid_saved=p.gids.saved,
                 username=p.username,
                 ) 
             return data
  
-
 
 def main():
     from optparse import OptionParser

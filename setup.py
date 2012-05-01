@@ -18,6 +18,7 @@ setup(name='nerve',
         gevent
         tnetstring
         python-daemon
+        psutil
         """,
       entry_points={'console_scripts': """
         nrv-center = nerve.center:main

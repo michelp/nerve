@@ -1,1 +1,1 @@
- ~/python27/bin/virtualenv . --system-site-packages --distribute
+ ~/python27/bin/virtualenv .virt --system-site-packages --distribute

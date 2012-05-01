@@ -3,18 +3,26 @@
 Nerve is a distributed process supervision tool written in Python
 and built on top of 0mq and gevent.
 
-Nerve differs from other process managers in that it is
-distributed.  A nerve process runs on one or more machines and
-"watches" other locally or remotely running processes.
+Nerve is distributed in the sense that the supervising program and the
+process being supervised are decoupled via a 0mq communication
+channel. Regardless if whether a process is running locally to a nerve
+or on some other machine, a consistent set of command-line tools is
+used to manage all processes across many machines.
 
-Another big difference with other supervision frameworks is that there
-is no "configuration file".  Based on the philosophies of 0mq, there
-is no centralized point of control or configuration.
-
-Regardless if whether a process is running locally to a nerve or
-on some other machine, a consistent set of command-line tools is used
-to manage all processes across many machines.  There is no nerve
-"shell".  Your OS shell is the nerve shell!
+		     ^
+		     |
+		     |
+		   +-|---------------------+
+		   | |       DEALER        |
+		   |-|---------------------|
+		   | |         +---------+ |
+	      <----|-+--stdio--|         | |
+		   | |         |         | |
+	      <----|-+-signals-| subproc | |
+		   | |         |         | |
+		   | +--stats--|         | |
+		   |           +---------+ |
+		   +-----------------------+
 
 ## Installation
 
@@ -35,9 +43,9 @@ nerve process.
 
     $ nrv-center
 
-This command runs a local nerve process and connects it to the
-default endpoint 'ipc://nerve.sock' which creates a domain socket
-of that name in the local directory where nerve was run.
+This command runs a local nerve center process and connects it to the
+default endpoint 'ipc://nerve.sock' which creates a domain socket of
+that name in the local directory where nerve was run.
 
 Now a nerve process is running waiting for processes to monitor to
 be started.  For example, consider the standard unix program 'echo':
