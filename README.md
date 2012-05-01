@@ -9,7 +9,33 @@ channel. Regardless if whether a process is running locally to a nerve
 or on some other machine, a consistent set of command-line tools is
 used to manage all processes across many machines.
 
+
+
+	    +------------+             +------------+
+	    |   Center   |             |   Center   |
+	    |------------|             |------------|
+	    |   +----+   |             |   +----+   |
+	    |   |    |   |<-----------+|   |    |   |
+	    |   | DB |   |             |   | DB |   |
+	    |   |    |   |             |   |    |   |
+	    |   +----+   |             |   +----+   |
+	    +------------+             +------------+
+		  +                          ^
+		  |                          |
+		  |                          |
+		  |                          |
+		  v                          +
+	    +------------+             +------------+
+	    |   Center   |             |   Center   |
+	    |------------|             |------------|
+	    |   +----+   |             |   +----+   |
+	    |   |    |   |+----------->|   |    |   |
+	    |   | DB |   |             |   | DB |   |
+	    |   |    |   |             |   |    |   |
+	    |   +----+   |             |   +----+   |
+	    +------------+             +------------+
 		     ^
+                     |
 		     |
 		     |
 		   +-|---------------------+
