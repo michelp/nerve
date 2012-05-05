@@ -19,11 +19,21 @@ setup(name='nerve',
         tnetstring
         python-daemon
         psutil
+        cliff
+        sqlalchemy
         """,
-      entry_points={'console_scripts': """
+      entry_points={
+        'console_scripts': """
+        nrvsh = nerve.nrvsh:main
         nrv-center = nerve.center:main
         nrv-open = nerve.process:main
-      """},
+      """,
+        'nrv.commands': """
+        ps = nerve.ps:Ps
+        kill = nerve.kill:Kill
+      """
+        },
+
       keywords="process supervision zeromq 0mq pyzmq gevent distributed",
       classifiers=[
         'Development Status :: 3 - Alpha',

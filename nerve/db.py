@@ -46,6 +46,7 @@ class Process(Base):
                           backref=backref('processes'))
 
     uuid = Column(String, primary_key=True)
+    center = Column(String)
     name = Column(String)
     pid = Column(Integer)
     identity = Column(String)

@@ -24,6 +24,7 @@ class Process(object):
     process = None
     identity = None
     uuid = None
+    center = None
     state = state()
     
     def __init__(self, 
@@ -265,8 +266,18 @@ class Process(object):
     def _write_stdin(self):
         while True:
             msg = self._recv()
+            assert msg.pop(0) == ''
             cmd = msg.pop(0)
-            if cmd == 'in':
+            if cmd == 'kill':
+                os.kill(self.process.pid, loads(msg[0]))
+
+            elif cmd == 'center':
+                self.center = msg[0]
+
+            elif cmd == 'flush':
+                self._flush()
+
+            elif cmd == 'in':
                 socket.wait_write(self.process.stdin.fileno())
                 while True:
                     try:
@@ -277,20 +288,17 @@ class Process(object):
                         if e.args[0] != errno.EAGAIN:
                             raise
 
-            elif cmd == 'kill':
-                os.kill(self.process.pid, loads(msg[0]))
-
-            elif cmd == 'flush':
-                self._flush()
-
     def resource_info(self):
         # make this pluggable??
         info = dict(uuid=self.uuid,
+                    center=self.center,
                     uptime=self.uptime,
                     state_name=state.to_str[self.state],
                     state=self.state,
                     ping_time=datetime.utcnow())
-        info.update(self._get_psutil())
+        pu = self._get_psutil()
+        if pu:
+            info.update(pu)
         return info
 
     def _read_stdout(self):
@@ -371,18 +379,18 @@ class Process(object):
  
 
 def main():
-    from optparse import OptionParser
+    import argparse
 
     configs = {}
     config_file = None
-    try:
-        if '-c' in sys.argv:
-            config_file = sys.argv[sys.argv.index('-c') + 1]
-        elif '--config' in sys.argv:
-            config_file = sys.argv[sys.argv.index('--config') + 1]
-    except IndexError:
-        print 'Must provide a config file following -c or --config option.'
-        return
+    # try:
+    #     if '-c' in sys.argv:
+    #         config_file = sys.argv[sys.argv.index('-c') + 1]
+    #     elif '--config' in sys.argv:
+    #         config_file = sys.argv[sys.argv.index('--config') + 1]
+    # except IndexError:
+    #     print 'Must provide a config file following -c or --config option.'
+    #     return
 
     if config_file is not None:
         import ConfigParser
@@ -391,121 +399,122 @@ def main():
         for o in cp.options('nrvopen'):
             configs[o] = cp.get('nrvopen', o)
 
-    parser = OptionParser()
-    parser.disable_interspersed_args()
+    parser = argparse.ArgumentParser()
 
-    parser.add_option(
+    parser.add_argument(
         '-c', '--config', 
         dest='config', default=False,
         help='Specify config file.')
 
-    parser.add_option(
+    parser.add_argument(
         '-e', '--endpoint',
         dest='endpoint', 
         default=configs.get('endpoint', 'ipc://zerovisor.sock'),
         help='Specify zerovisor endpoint.')
 
-    parser.add_option(
+    parser.add_argument(
         '-i', '--identity',
         dest='identity', 
         default=configs.get('identity'),
         help='Specify our identity to the zerovisor.')
 
-    parser.add_option(
+    parser.add_argument(
         '-I', '--recv-in',
         action='store_true', 
         dest='recv_in', 
         default=configs.get('recv-in', False),
         help='Receive stdin from zerovisor.')
 
-    parser.add_option(
+    parser.add_argument(
         '-O', '--send-out',
         action='store_true', 
         dest='send_out', 
         default=configs.get('send-out', False),
         help='Send stdout to zerovisor.')
 
-    parser.add_option(
+    parser.add_argument(
         '-E', '--send-err',
         action='store_true', 
         dest='send_err', 
         default=configs.get('send-err', False),
         help='Send stderr to zerovisor.')
 
-    parser.add_option(
+    parser.add_argument(
         '-A', '--send-all',
         action='store_true', 
         dest='send_all', 
         default=configs.get('send-all', False),
         help='Like -IAE, receive stdin and send both stdout and stderr.')
 
-    parser.add_option(
+    parser.add_argument(
         '-s', '--restart-retries',
-        type="int", 
+        type=int, 
         dest='restart_retries', 
         default=int(configs.get('restart-retries', 3)),
         help='How many retries to allow before permanent failure.')
 
-    parser.add_option(
+    parser.add_argument(
         '-p', '--ping-interval',
-        type="float", 
+        type=float, 
         dest='ping_interval', 
         default=float(configs.get('ping-interval', 3.0)),
         help='Seconds between heartbeats to zerovisor.')
 
-    parser.add_option(
+    parser.add_argument(
         '-l', '--poll-interval',
-        type="float", 
+        type=float, 
         dest='poll_interval', 
         default=float(configs.get('poll-interval', .1)),
         help='Seconds between checking subprocess health.')
 
-    parser.add_option(
+    parser.add_argument(
         '-w', '--wait-to-die',
-        type="int", 
+        type=int, 
         dest='wait_to_die', 
         default=int(configs.get('wait-to-die', 3)),
         help='Seconds to wait after sending TERM to send KILL.')
 
-    parser.add_option(
+    parser.add_argument(
         '-g', '--linger',
-        type="int", 
+        type=int, 
         dest='linger', 
         default=int(configs.get('linger', 1)),
         help='Seconds to wait at exit for outbound messages to send.')
 
-    parser.add_option(
+    parser.add_argument(
         '-S', '--ssh-server',
         dest='ssh_server', 
         default=configs.get('ssh-server'),
         help='Use ssh tunnel to server to connect to zerovisor endpoint.')
 
-    parser.add_option(
+    parser.add_argument(
         '-d', '--debug', 
         action='store_true', 
         dest='debug', 
         default=configs.get('debug'),
         help='Debug on unhandled error.')
 
-    (options, args) = parser.parse_args()
+    parser.add_argument('args', nargs=argparse.REMAINDER)
+
+    args = parser.parse_args()
 
     p = Process(
-        args,
+        args.args,
         stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,
-        nrv_endpoint=options.endpoint,
-        nrv_identity=options.identity,
-        nrv_recv_in=options.recv_in,
-        nrv_send_out=options.send_out,
-        nrv_send_err=options.send_err,
-        nrv_send_all=options.send_all,
-        nrv_restart_retries=options.restart_retries,
-        nrv_ping_interval=options.ping_interval,
-        nrv_poll_interval=options.poll_interval,
-        nrv_wait_to_die=options.wait_to_die,
-        nrv_linger=options.linger,
-        nrv_ssh_server=options.ssh_server,
+        nrv_endpoint=args.endpoint,
+        nrv_identity=args.identity,
+        nrv_recv_in=args.recv_in,
+        nrv_send_out=args.send_out,
+        nrv_send_err=args.send_err,
+        nrv_send_all=args.send_all,
+        nrv_restart_retries=args.restart_retries,
+        nrv_ping_interval=args.ping_interval,
+        nrv_poll_interval=args.poll_interval,
+        nrv_wait_to_die=args.wait_to_die,
+        nrv_linger=args.linger,
+        nrv_ssh_server=args.ssh_server,
         )
 
     g = gevent.spawn(p.start)
